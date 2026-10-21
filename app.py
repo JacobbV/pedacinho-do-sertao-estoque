@@ -1,4 +1,4 @@
-"""Pedacinho do Sertão — Controle de estoque (V2.0.1)
+"""Pedacinho do Sertão — Controle de estoque (V2.0.3)
 
 Login com níveis de acesso, pedidos sem quantidade (o admin define),
 compras com conferência de entrega e balanço de estoque por etapas.
@@ -8,6 +8,7 @@ import re
 import secrets
 import sqlite3
 import time
+import unicodedata
 from datetime import timedelta
 from functools import wraps
 from pathlib import Path
@@ -110,6 +111,15 @@ def preparar_banco():
             ativo INTEGER NOT NULL DEFAULT 1,
             criado_em TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
         );
+        CREATE TABLE IF NOT EXISTS sugestoes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            texto TEXT NOT NULL, solicitante TEXT NOT NULL, usuario_id INTEGER,
+            setor TEXT NOT NULL DEFAULT 'Cozinha',
+            status TEXT NOT NULL DEFAULT 'aberta',
+            produto_id INTEGER, nota TEXT DEFAULT '',
+            criada_em TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            resolvida_em TEXT
+        );
         CREATE TABLE IF NOT EXISTS balancos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             status TEXT NOT NULL DEFAULT 'aberto',
@@ -175,6 +185,20 @@ def numero(valor):
     if isinstance(valor, str):
         valor = valor.replace(",", ".")
     return float(valor)
+
+
+def chave_nome(texto):
+    """Nome sem maiúsculas, acentos, pontuação e espaços extras (para achar duplicados)."""
+    t = unicodedata.normalize("NFKD", str(texto)).encode("ascii", "ignore").decode().lower()
+    return re.sub(r"[^a-z0-9]+", " ", t).strip()
+
+
+def nome_duplicado(con, nome, ignorar_id=None):
+    chave = chave_nome(nome)
+    for r in con.execute("SELECT id, nome FROM produtos"):
+        if r["id"] != ignorar_id and chave_nome(r["nome"]) == chave:
+            return r["nome"]
+    return None
 
 
 def status_estoque(quantidade, minimo):
@@ -472,6 +496,7 @@ def api_excluir_colaborador(uid):
         con.close()
         return erro("Colaborador não encontrado.", 404)
     con.execute("UPDATE solicitacoes SET usuario_id = NULL WHERE usuario_id = ?", (uid,))
+    con.execute("UPDATE sugestoes SET usuario_id = NULL WHERE usuario_id = ?", (uid,))
     con.execute("DELETE FROM usuarios WHERE id = ?", (uid,))
     con.commit()
     con.close()
@@ -514,6 +539,8 @@ def _campos_produto(dados, atual=None):
     setor = dados.get("setor", atual["setor"] if atual else "Cozinha")
     if not nome or not unidade:
         raise ValueError("Informe o nome e a unidade.")
+    if not chave_nome(nome):
+        raise ValueError("Informe um nome válido.")
     if setor not in SETORES:
         raise ValueError("Setor inválido.")
     try:
@@ -530,15 +557,27 @@ def _campos_produto(dados, atual=None):
 @app.post("/api/produtos")
 @protegido(admin=True)
 def api_criar_produto():
+    dados = request.get_json(silent=True) or {}
     try:
-        nome, cat, uni, setor, qtd, mini, des = _campos_produto(request.get_json(silent=True) or {})
+        nome, cat, uni, setor, qtd, mini, des = _campos_produto(dados)
     except ValueError as e:
         return erro(str(e))
     con = conectar()
+    existente = nome_duplicado(con, nome)
+    if existente:
+        con.close()
+        return erro(f"Esse produto já existe: {existente}.", 409)
     cur = con.execute(
         """INSERT INTO produtos (nome, categoria, unidade, quantidade, minimo, desejado, setor)
            VALUES (?, ?, ?, ?, ?, ?, ?)""", (nome, cat, uni, qtd, mini, des, setor))
     registrar_movimento(con, cur.lastrowid, "Produto cadastrado", qtd, nome, g.usuario["nome"])
+    try:
+        sugestao = int(dados.get("sugestao_id") or 0)
+    except (TypeError, ValueError):
+        sugestao = 0
+    if sugestao:
+        con.execute("""UPDATE sugestoes SET status='atendida', produto_id=?, resolvida_em=datetime('now','localtime')
+                       WHERE id=? AND status='aberta'""", (cur.lastrowid, sugestao))
     con.commit()
     con.close()
     return jsonify(ok=True), 201
@@ -557,6 +596,10 @@ def api_editar_produto(produto_id):
     except ValueError as e:
         con.close()
         return erro(str(e))
+    existente = nome_duplicado(con, nome, produto_id)
+    if existente:
+        con.close()
+        return erro(f"Esse produto já existe: {existente}.", 409)
     con.execute(
         """UPDATE produtos SET nome=?, categoria=?, unidade=?, setor=?, quantidade=?, minimo=?, desejado=?
            WHERE id=?""", (nome, cat, uni, setor, qtd, mini, des, produto_id))
@@ -566,6 +609,78 @@ def api_editar_produto(produto_id):
     if mini != atual["minimo"]:
         registrar_movimento(con, produto_id, "Mínimo alterado", mini,
                             f"Mínimo de {atual['minimo']:g} para {mini:g}.", g.usuario["nome"])
+    con.commit()
+    con.close()
+    return jsonify(ok=True)
+
+
+# --------------------------------------------------------------- sugestões ("Não achei o item")
+@app.post("/api/sugestoes")
+@protegido(permissao="pode_pedir")
+def api_criar_sugestao():
+    u = g.usuario
+    texto = " ".join(str((request.get_json(silent=True) or {}).get("texto", "")).split())
+    if len(chave_nome(texto)) < 3:
+        return erro("Descreva o item que você não achou (pelo menos 3 letras).")
+    texto = texto[:100]
+    con = conectar()
+    existente = nome_duplicado(con, texto)
+    if existente:
+        con.close()
+        return erro(f"Esse item já está na lista: {existente}. Procure na busca.", 409)
+    for r in con.execute("SELECT texto FROM sugestoes WHERE status='aberta' AND usuario_id = ?", (u["id"],)):
+        if chave_nome(r["texto"]) == chave_nome(texto):
+            con.close()
+            return erro("Você já avisou sobre esse item. O admin vai avaliar.", 409)
+    setor = u["setor"] if u["setor"] in SETORES else "Cozinha"
+    con.execute("INSERT INTO sugestoes (texto, solicitante, usuario_id, setor) VALUES (?, ?, ?, ?)",
+                (texto, u["nome"], u["id"], setor))
+    con.commit()
+    con.close()
+    return jsonify(ok=True), 201
+
+
+@app.get("/api/sugestoes")
+@protegido()
+def api_listar_sugestoes():
+    u = g.usuario
+    base = """SELECT s.*, p.nome AS produto FROM sugestoes s LEFT JOIN produtos p ON p.id = s.produto_id """
+    con = conectar()
+    if u["nivel"] == "admin":
+        linhas = con.execute(base + "ORDER BY (s.status = 'aberta') DESC, s.id DESC LIMIT 100").fetchall()
+    else:
+        linhas = con.execute(base + "WHERE s.usuario_id = ? ORDER BY s.id DESC LIMIT 20", (u["id"],)).fetchall()
+    con.close()
+    return jsonify([dict(l) for l in linhas])
+
+
+@app.post("/api/sugestoes/<int:sid>/resolver")
+@protegido(admin=True)
+def api_resolver_sugestao(sid):
+    dados = request.get_json(silent=True) or {}
+    acao = dados.get("acao")
+    con = conectar()
+    s = con.execute("SELECT * FROM sugestoes WHERE id = ? AND status = 'aberta'", (sid,)).fetchone()
+    if s is None:
+        con.close()
+        return erro("Sugestão não encontrada ou já resolvida.", 404)
+    if acao == "ja_existe":
+        try:
+            pid = int(dados.get("produto_id"))
+        except (TypeError, ValueError):
+            con.close()
+            return erro("Escolha o produto que já existe.")
+        if con.execute("SELECT 1 FROM produtos WHERE id = ?", (pid,)).fetchone() is None:
+            con.close()
+            return erro("Produto não encontrado.", 404)
+        con.execute("""UPDATE sugestoes SET status='existente', produto_id=?, resolvida_em=datetime('now','localtime')
+                       WHERE id=?""", (pid, sid))
+    elif acao == "recusar":
+        con.execute("""UPDATE sugestoes SET status='recusada', nota=?, resolvida_em=datetime('now','localtime')
+                       WHERE id=?""", (str(dados.get("nota") or "")[:100], sid))
+    else:
+        con.close()
+        return erro("Ação inválida. Para cadastrar, crie o produto em Estoque.")
     con.commit()
     con.close()
     return jsonify(ok=True)
@@ -610,7 +725,7 @@ def api_criar_pedido():
         con.execute(
             """INSERT INTO solicitacoes (produto_id, quantidade, observacao, solicitante, status,
                pedido_codigo, qtd_aprovada, usuario_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (pid, qtd, str(item.get("observacao") or "").strip()[:200], u["nome"], status, codigo,
+            (pid, qtd, str(item.get("observacao") or "").strip()[:100], u["nome"], status, codigo,
              qtd if status == "Aprovada" else None, u["id"]))
         registrar_movimento(con, pid, "Solicitação criada", qtd,
                             f"Pedido de {p['nome']} feito por {u['nome']}.", u["nome"])
@@ -729,7 +844,7 @@ def api_compras():
     con.close()
 
     def item(s):
-        return {"id": s["id"], "produto_id": s["produto_id"], "produto": s["produto"], "unidade": s["unidade"],
+        return {"id": s["id"], "produto_id": s["produto_id"], "observacao": s["observacao"] or "", "produto": s["produto"], "unidade": s["unidade"],
                 "qtd": s["qtd_aprovada"] or s["quantidade"], "solicitante": s["solicitante"],
                 "pedido": s["pedido_codigo"] or f"L{s['id']}"}
     return jsonify(
@@ -1022,10 +1137,11 @@ def api_resumo():
     pend = con.execute("SELECT COUNT(DISTINCT COALESCE(pedido_codigo, 'L' || id)) FROM solicitacoes "
                        "WHERE status = 'Solicitada'").fetchone()[0]
     receber = con.execute("SELECT COUNT(*) FROM solicitacoes WHERE status = 'Comprada'").fetchone()[0]
+    sugestoes = con.execute("SELECT COUNT(*) FROM sugestoes WHERE status = 'aberta'").fetchone()[0]
     con.close()
     return jsonify(
         itens_baixos=sum(1 for p in produtos if status_estoque(p["quantidade"], p["minimo"]) == "baixo"),
-        pedidos_aprovar=pend, compras_receber=receber, balanco=balanco,
+        pedidos_aprovar=pend, compras_receber=receber, sugestoes_abertas=sugestoes, balanco=balanco,
         atencao=[{"id": p["id"], "nome": p["nome"], "quantidade": p["quantidade"], "unidade": p["unidade"],
                   "status": status_estoque(p["quantidade"], p["minimo"])} for p in atencao[:5]])
 

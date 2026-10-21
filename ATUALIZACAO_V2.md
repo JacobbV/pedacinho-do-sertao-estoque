@@ -40,3 +40,13 @@ python tests/test_api.py      # testa o fluxo completo da API
 - Saudação (Bom dia / Boa tarde / Boa noite) e data acompanham o relógio e se atualizam sozinhas; ao voltar para o app, o início recarrega os números.
 - Admin pode **excluir colaborador** (Equipe → tocar na pessoa → Excluir colaborador). Apaga login e senha; quem estiver logado perde o acesso na hora. O nome continua só como texto no histórico antigo. Para quem pode voltar, use "Acesso ativo" (desativar).
 - Arquivos que mudaram: `app.py` e `static/app.js`.
+
+## V2.0.2
+- **Observação por item** no pedido (opcional, até 100 caracteres): ao marcar um item, aparece um campo para marca, tipo ou urgência. A observação aparece para o admin na aprovação, na lista de compras e na conferência da entrega, e em "Meus pedidos". Não cria produto novo.
+- Arquivos que mudaram: `app.py`, `static/app.js`, `static/style.css`.
+
+## V2.0.3
+- **Produto duplicado bloqueado:** ao cadastrar ou renomear, o app ignora maiúsculas, acento, pontuação e espaço extra ("Cerveja lata", "cerveja  LATA" e "Cerveja-lata" contam como o mesmo nome). "Cerveja lata · Heineken" continua sendo um produto diferente. Padrão de nome sugerido: Categoria · tipo · marca.
+- **"Não achei o item"** (colaborador, no fim da lista de Novo pedido): escreve o que falta, e isso vira um **aviso para o admin**, sem criar produto nem mexer no estoque. Se o texto já bate com um produto da lista, o app avisa na hora.
+- **Admin:** aviso amarelo no Início e aba **Pedidos → Sugestões**. Para cada aviso: **Cadastrar** (abre o cadastro já com o nome e o setor preenchidos), **Já existe** (escolhe o produto da lista) ou **Recusar**. O colaborador vê o resultado em Meus pedidos → "Itens que pedi para cadastrar".
+- Arquivos que mudaram: `app.py`, `static/app.js` (a tabela nova `sugestoes` é criada sozinha no banco, sem perder nada).

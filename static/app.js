@@ -1,5 +1,5 @@
 'use strict';
-/* Pedacinho do Sertão — app V2 (JavaScript puro) — V2.0.1 */
+/* Pedacinho do Sertão — app V2 (JavaScript puro) — V2.0.3 */
 const app = document.getElementById('app');
 const S = {me: null, tela: 'inicio', p: {}, sub: null, pilha: [], d: {}, bal: false, form: null, sel: {}, filtro: null, q: ''};
 const TELAS = {};
@@ -127,6 +127,7 @@ TELAS.inicio = {
   body() {
     const r = S.d.resumo; let h = '';
     if (r.balanco.aberto) h += `<button class="aviso" data-a="ir" data-t="${adm() ? 'balanco' : 'contagem'}">${ic('bal')}<span style="flex:1"><b>Balanço aberto</b> · ${r.balanco.contados} de ${r.balanco.total} itens contados</span><span class="seta">›</span></button>`;
+    if (adm() && r.sugestoes_abertas) h += `<button class="aviso amarelo" data-a="ir" data-t="pedidos" data-sub="sug"><span style="flex:1"><b>${r.sugestoes_abertas} ${r.sugestoes_abertas === 1 ? 'item sugerido' : 'itens sugeridos'}</b> por colaboradores · avaliar</span><span class="seta">›</span></button>`;
     if (adm()) {
       h += `<div class="sec">Resumo do estoque</div><div class="stats">
         <button class="stat s1" data-a="ir" data-t="estoque" data-f="baixos"><span class="ic">${ic('box')}</span><b>${r.itens_baixos}</b><span>itens baixos</span></button>
@@ -146,7 +147,7 @@ TELAS.inicio = {
 };
 function cartaoMeuPedido(g) {
   return `<div class="cartao"><div class="pequeno" style="margin-bottom:6px">${data(g.criada_em)}</div>${g.itens.map((i) =>
-    `<div class="item" style="padding:3px 0"><span class="meio">${esc(i.produto)}${i.qtd_aprovada ? ` · ${un(i.qtd_aprovada, i.unidade)}` : ''}</span>${seloPed(i.status)}</div>`).join('')}</div>`;
+    `<div style="padding:3px 0"><div class="item"><span class="meio">${esc(i.produto)}${i.qtd_aprovada ? ` · ${un(i.qtd_aprovada, i.unidade)}` : ''}</span>${seloPed(i.status)}</div>${i.observacao ? `<div class="pequeno">“${esc(i.observacao)}”</div>` : ''}</div>`).join('')}</div>`;
 }
 
 /* ---------- ESTOQUE (admin) ---------- */
@@ -175,13 +176,13 @@ TELAS.editar = {
   async load() {
     if (!S.d.produtos) S.d.produtos = await api('/api/produtos');
     const p = S.p.id ? S.d.produtos.find((x) => x.id === +S.p.id) : null;
-    S.form = p ? {...p} : {id: null, nome: '', categoria: 'Outros', unidade: 'un', setor: 'Cozinha', quantidade: 0, minimo: 0, desejado: 0};
+    S.form = p ? {...p} : {id: null, nome: S.p.nome || '', categoria: 'Outros', unidade: 'un', setor: S.p.setor || 'Cozinha', quantidade: 0, minimo: 0, desejado: 0, sugestao_id: S.p.sugestao || null};
   },
   cab: () => cab({titulo: S.form.id ? 'Editar item' : 'Novo produto', sub: 'Estoque e mínimo', voltar: true}),
   body() {
     const f = S.form, passo = f.unidade === 'kg' ? 0.5 : 1;
     return `<div class="cartao item">${S.form.id ? thumb(f.id) : ''}<span class="meio"><div class="nome" style="font-size:19px">${esc(f.nome || 'Novo produto')}</div><div class="det">${esc(f.setor)}</div></span>${S.form.id ? seloEst(f.status) : ''}</div>
-      ${S.form.id ? '' : campo('Nome', 'f-nome', f.nome, 'data-i="f" data-c="nome"')}
+      ${S.form.id ? '' : campo('Nome', 'f-nome', f.nome, 'data-i="f" data-c="nome"') + '<div class="pequeno" style="margin-top:-4px">Padrão do nome: Categoria · tipo · marca (ex.: Cerveja lata · Heineken). Nomes repetidos são bloqueados.</div>'}
       <div class="cartao"><div class="pequeno">Estoque atual</div><div class="passo"><button data-a="passo" data-v="${-passo}" aria-label="Diminuir">−</button>
         <input class="num" id="f-quantidade" inputmode="decimal" value="${fmt(f.quantidade)}" data-i="f" data-c="quantidade"><button data-a="passo" data-v="${passo}" aria-label="Aumentar">+</button></div><div class="pequeno" style="text-align:center">${esc(f.unidade)}</div></div>
       <div class="linha2">${campo('Estoque mínimo', 'f-minimo', fmt(f.minimo), 'inputmode="decimal" data-i="f" data-c="minimo"')}${campo('Quantidade ideal', 'f-desejado', fmt(f.desejado), 'inputmode="decimal" data-i="f" data-c="desejado"')}</div>
@@ -212,7 +213,7 @@ TELAS.pedir = {
     const cats = [...new Set(S.d.produtos.map((p) => p.categoria))].sort();
     const filtros = (!adm() && S.d.produtos.some((p) => p.frequencia > 0) ? [['mais', 'Mais pedidos']] : []).concat([['todos', 'Todos']], cats.map((c) => [c, c]));
     return `${adm() ? '' : segMeus('novo')}<input id="busca" data-i="busca" placeholder="Buscar ingrediente ou produto" value="${esc(S.q)}">
-      <div class="chips">${filtros.map(([k, t]) => chip(t, S.filtro === k, 'filtro', `data-k="${k}"`)).join('')}</div><div id="lista" style="display:flex;flex-direction:column;gap:10px">${listaPedir()}</div>`;
+      <div class="chips">${filtros.map(([k, t]) => chip(t, S.filtro === k, 'filtro', `data-k="${k}"`)).join('')}</div><div id="lista" style="display:flex;flex-direction:column;gap:10px">${listaPedir()}</div>${adm() ? '' : '<button class="btn ghost" data-a="ir" data-t="sugerir">Não achei o item</button>'}`;
   },
   foot() { const n = Object.keys(S.sel).length; return `<button class="btn" id="enviar" data-a="enviar-pedido" ${n ? '' : 'disabled'}>Enviar pedido (${n} ${n === 1 ? 'item' : 'itens'})</button>`; },
 };
@@ -224,32 +225,57 @@ function listaPedir() {
   else if (S.filtro && S.filtro !== 'todos') ps = ps.filter((p) => p.categoria === S.filtro);
   if (!ps.length) return vazio('Nenhum item aqui.');
   return ps.map((p) => {
-    const on = S.sel[p.id] !== undefined;
-    const extra = adm() ? `<span class="pequeno">${seloEst(p.status)}</span>` : '';
-    return `<div class="cartao item ${on ? 'marcado' : ''}" data-a="marcar" data-id="${p.id}"><span class="meio"><div class="nome" style="font-size:16px">${esc(p.nome)}</div>
-      ${adm() ? `<div class="det">${un(p.quantidade, p.unidade)} · mín. ${un(p.minimo, p.unidade)}</div>` : ''}</span>${adm() && on ? `<input class="pequeno-in" inputmode="decimal" placeholder="Qtd." data-i="qtdp" data-id="${p.id}" value="${esc(S.sel[p.id])}">` : ''}${extra}
-      <span class="pedir">${on ? '✓ Pedir' : 'Pedir'}</span></div>`;
+    const v = S.sel[p.id], on = v !== undefined;
+    return `<div class="cartao ${on ? 'marcado' : ''}" style="display:flex;flex-direction:column;gap:8px"><div class="item" data-a="marcar" data-id="${p.id}"><span class="meio"><div class="nome" style="font-size:16px">${esc(p.nome)}</div>
+      ${adm() ? `<div class="det">${un(p.quantidade, p.unidade)} · mín. ${un(p.minimo, p.unidade)}</div>` : ''}</span>${adm() && on ? `<input class="pequeno-in" inputmode="decimal" placeholder="Qtd." data-i="qtdp" data-id="${p.id}" value="${esc(v.q)}">` : ''}${adm() ? seloEst(p.status) : ''}
+      <span class="pedir">${on ? '✓ Pedir' : 'Pedir'}</span></div>
+      ${on ? `<input class="obs" maxlength="100" placeholder="Observação (opcional): marca, tipo, urgência…" data-i="obs" data-id="${p.id}" value="${esc(v.o)}">` : ''}</div>`;
   }).join('');
 }
 
+const seloSug = (s) => ({aberta: selo('limite', 'Aguardando'), atendida: selo('ok', 'Cadastrado'), existente: selo('ok', 'Já existe'), recusada: selo('baixo', 'Recusado')}[s.status]);
 TELAS.meus = {
   tab: 'pedidos',
-  async load() { S.d.pedidos = await api('/api/pedidos'); },
+  async load() { [S.d.pedidos, S.d.sug] = await Promise.all([api('/api/pedidos'), api('/api/sugestoes')]); },
   cab: () => cab({titulo: 'Meus pedidos', sub: S.me.setor}),
-  body: () => segMeus('meus') + (S.d.pedidos.length ? S.d.pedidos.map(cartaoMeuPedido).join('') : vazio('Você ainda não fez pedidos.')),
+  body() {
+    let h = segMeus('meus') + (S.d.pedidos.length ? S.d.pedidos.map(cartaoMeuPedido).join('') : vazio('Você ainda não fez pedidos.'));
+    if (S.d.sug.length) h += `<div class="sec">Itens que pedi para cadastrar</div>` + S.d.sug.map((s) => `<div class="cartao"><div class="item"><span class="meio"><div class="nome" style="font-size:16px">${esc(s.texto)}</div><div class="det">${data(s.criada_em)}${s.status === 'atendida' || s.status === 'existente' ? ` · na lista como ${esc(s.produto)}` : ''}${s.status === 'recusada' && s.nota ? ` · ${esc(s.nota)}` : ''}</div></span>${seloSug(s)}</div></div>`).join('');
+    return h;
+  },
+};
+TELAS.sugerir = {
+  tab: 'pedidos',
+  cab: () => cab({titulo: 'Não achei o item', sub: S.me.setor, voltar: true}),
+  body: () => `<div class="cartao"><div>Escreva o que você precisa. O aviso vai para o admin, que decide se cadastra na lista.</div><div class="pequeno" style="margin-top:6px">Isso não cria produto nem muda o estoque. Procure antes na busca para ver se o item já existe com outro nome.</div></div>
+    ${campo('Item que está faltando na lista', 'sg-texto', '', 'maxlength="100" placeholder="Ex.: Cerveja long neck Heineken"')}`,
+  foot: () => btn('Enviar aviso ao admin', 'enviar-sugestao'),
 };
 
 /* ---------- PEDIDOS (admin): aprovar ---------- */
 TELAS.pedidos = {
   tab: 'pedidos',
   entrar() { S.sub = S.sub || 'pend'; },
-  async load() { S.d.pedidos = await api('/api/pedidos' + (S.sub === 'hist' ? '' : '?apenas=pendentes')); },
-  cab: () => cab({titulo: 'Pedidos', sub: 'Aprovação e histórico'}),
+  async load() {
+    S.d.sug = await api('/api/sugestoes');
+    if (S.sub === 'sug') S.d.produtos = await api('/api/produtos');
+    else S.d.pedidos = await api('/api/pedidos' + (S.sub === 'hist' ? '' : '?apenas=pendentes'));
+  },
+  cab: () => cab({titulo: 'Pedidos', sub: 'Aprovação, sugestões e histórico'}),
   body() {
+    const abertas = S.d.sug.filter((s) => s.status === 'aberta').length;
+    const seg = `<div class="seg"><button class="${S.sub === 'pend' ? 'on' : ''}" data-a="sub" data-v="pend">Aprovar</button><button class="${S.sub === 'sug' ? 'on' : ''}" data-a="sub" data-v="sug">Sugestões${abertas ? ` (${abertas})` : ''}</button><button class="${S.sub === 'hist' ? 'on' : ''}" data-a="sub" data-v="hist">Histórico</button></div>`;
+    if (S.sub === 'sug') {
+      const opcoes = S.d.produtos.slice().sort((a, b) => a.nome.localeCompare(b.nome)).map((p) => `<option value="${p.id}">${esc(p.nome)}</option>`).join('');
+      return seg + (S.d.sug.length ? S.d.sug.map((s) => `<div class="cartao" style="display:flex;flex-direction:column;gap:8px"><div class="item"><span class="meio"><div class="nome" style="font-size:16px">${esc(s.texto)}</div><div class="det">${esc(s.solicitante)} · ${esc(s.setor)} · ${data(s.criada_em)}</div></span>${seloSug(s)}</div>
+        ${s.status === 'aberta' ? `<label>Já existe na lista?<select id="jx-${s.id}"><option value="">Escolha o produto…</option>${opcoes}</select></label>
+        <div class="linha2"><button class="btn verde" style="min-height:44px" data-a="sug-cadastrar" data-id="${s.id}">Cadastrar</button><button class="btn ghost" data-a="sug-existe" data-id="${s.id}">Já existe</button></div>
+        <button class="btn perigo" data-a="sug-recusar" data-id="${s.id}">Recusar</button>` : (s.produto ? `<div class="det">Na lista como ${esc(s.produto)}</div>` : '')}</div>`).join('') : vazio('Nenhuma sugestão dos colaboradores.'));
+    }
     const lista = S.d.pedidos.length ? S.d.pedidos.map((g) => `<button class="cartao item" data-a="aprovar" data-cod="${g.codigo}"><span class="meio"><div class="nome">${esc(g.itens.length)} ${g.itens.length === 1 ? 'item' : 'itens'} · ${esc(g.solicitante)}</div>
       <div class="det">${data(g.criada_em)} · ${esc(g.itens.slice(0, 3).map((i) => i.produto).join(', '))}${g.itens.length > 3 ? '…' : ''}</div></span>${g.geral === 'Pendente' ? selo('limite', 'Aprovar') : selo('ok', g.geral)}<span class="seta">›</span></button>`).join('')
       : vazio(S.sub === 'hist' ? 'Nenhum pedido ainda.' : 'Nenhum pedido esperando aprovação.');
-    return `<div class="seg"><button class="${S.sub !== 'hist' ? 'on' : ''}" data-a="sub" data-v="pend">Para aprovar</button><button class="${S.sub === 'hist' ? 'on' : ''}" data-a="sub" data-v="hist">Histórico</button></div>${lista}`;
+    return seg + lista;
   },
 };
 TELAS.aprovar = {
@@ -260,6 +286,7 @@ TELAS.aprovar = {
       const aberto = i.status === 'Solicitada';
       const sug = Math.max(Math.round(((i.desejado || 0) - i.estoque) * 10) / 10, 0);
       return `<div class="cartao" style="display:flex;flex-direction:column;gap:8px"><div class="item">${thumb(i.produto_id)}<span class="nome meio">${esc(i.produto)}</span>${aberto ? seloEst(i.status_estoque) : seloPed(i.status)}</div>
+        ${i.observacao ? `<div class="aviso amarelo" style="font-size:13.5px">Observação: ${esc(i.observacao)}</div>` : ''}
         ${aberto ? `<div class="linha2" style="align-items:flex-end"><div class="pequeno">Estoque atual<div style="font-size:19px;font-weight:700;color:var(--texto)">${un(i.estoque, i.unidade)}</div><div class="pequeno">mín. ${un(i.minimo, i.unidade)}</div></div>${campo(`Quantidade (${esc(i.unidade)})`, 'qa-' + i.id, sug || '', 'inputmode="decimal" placeholder="0"')}</div>`
         : `<div class="det">${i.qtd_aprovada ? 'Quantidade: ' + un(i.qtd_aprovada, i.unidade) : ''}</div>`}</div>`;
     }).join('');
@@ -276,7 +303,7 @@ TELAS.compras = {
   body() {
     const c = S.d.compras, lista = S.sub === 'comprar' ? c.a_comprar : c.a_receber;
     const seg = adm() ? `<div class="seg"><button class="${S.sub === 'comprar' ? 'on' : ''}" data-a="sub" data-v="comprar">A comprar (${c.a_comprar.length})</button><button class="${S.sub === 'receber' ? 'on' : ''}" data-a="sub" data-v="receber">A receber (${c.a_receber.length})</button></div>` : '';
-    return seg + (lista.length ? lista.map((i) => `<button class="cartao item" data-a="alternar" data-id="${i.id}"><span class="check ${S.sel[i.id] ? 'on' : ''}">${S.sel[i.id] ? '✓' : ''}</span>${thumb(i.produto_id)}<span class="meio"><div class="nome">${esc(i.produto)}</div><div class="det">Pedido de ${esc(i.solicitante)}</div></span><b style="font-family:var(--serif);font-size:19px;color:var(--terra)">${un(i.qtd, i.unidade)}</b></button>`).join('')
+    return seg + (lista.length ? lista.map((i) => `<button class="cartao item" data-a="alternar" data-id="${i.id}"><span class="check ${S.sel[i.id] ? 'on' : ''}">${S.sel[i.id] ? '✓' : ''}</span>${thumb(i.produto_id)}<span class="meio"><div class="nome">${esc(i.produto)}</div><div class="det">Pedido de ${esc(i.solicitante)}${i.observacao ? ` · “${esc(i.observacao)}”` : ''}</div></span><b style="font-family:var(--serif);font-size:19px;color:var(--terra)">${un(i.qtd, i.unidade)}</b></button>`).join('')
       : vazio(S.sub === 'comprar' ? 'Nada para comprar agora.' : 'Nenhuma entrega esperando conferência.'));
   },
   foot() {
@@ -289,7 +316,7 @@ TELAS.entrega = {
   tab: 'compras',
   cab: () => cab({titulo: 'Conferir entrega', sub: 'Digite o que chegou', voltar: true}),
   body() {
-    return S.entrega.map((i) => `<div class="cartao" style="display:flex;flex-direction:column;gap:8px"><div class="item">${thumb(i.produto_id)}<span class="meio"><div class="nome">${esc(i.produto)}</div><div class="det">Pedido: ${un(i.qtd, i.unidade)}</div></span><span id="st-${i.id}">${seloReceb(i.qtd, i.qtd)}</span></div>
+    return S.entrega.map((i) => `<div class="cartao" style="display:flex;flex-direction:column;gap:8px"><div class="item">${thumb(i.produto_id)}<span class="meio"><div class="nome">${esc(i.produto)}</div><div class="det">Pedido: ${un(i.qtd, i.unidade)}${i.observacao ? ` · “${esc(i.observacao)}”` : ''}</div></span><span id="st-${i.id}">${seloReceb(i.qtd, i.qtd)}</span></div>
       ${campo(`Recebido (${esc(i.unidade)})`, 'rc-' + i.id, i.qtd, `inputmode="decimal" data-i="rec" data-id="${i.id}" data-ped="${i.qtd}"`)}</div>`).join('')
       + '<div class="pequeno" style="padding:0 2px">O estoque soma só o que foi recebido.</div>';
   },
@@ -385,7 +412,7 @@ TELAS.config = {
   cab: () => cab({titulo: 'Configurações', sub: S.me.nome, voltar: true}),
   body: () => `<div class="sec">Trocar senha</div>${formSenha()}${btn('Salvar nova senha', 'salvar-senha')}
     ${adm() ? `<div class="sec" style="margin-top:12px">Últimas movimentações</div>${S.d.hist.slice(0, 40).map((h) => `<div class="cartao"><div class="item"><b class="meio">${esc(h.tipo)} · ${esc(h.produto)}</b><span class="pequeno">${data(h.criada_em)}</span></div><div class="det muted">${esc(h.observacao)}${h.usuario ? ' — ' + esc(h.usuario) : ''}</div></div>`).join('')}` : ''}
-    <div class="pequeno" style="margin-top:8px">Pedacinho do Sertão · Estoque V2.0.0</div>`,
+    <div class="pequeno" style="margin-top:8px">Pedacinho do Sertão · Estoque V2.0.3</div>`,
 };
 TELAS.trocar = {
   semAbas: true, semMenu: true,
@@ -405,14 +432,16 @@ const ACOES = {
   passo: (el) => { const n = Math.max((num(S.form.quantidade) || 0) + parseFloat(el.dataset.v), 0); S.form.quantidade = n; $('#f-quantidade').value = fmt(n); notaEstoque(); },
   setor: (el) => { S.form.setor = el.dataset.v; render(); },
   'salvar-produto': () => tente(async () => {
-    const f = S.form, corpo = {nome: f.nome, categoria: f.categoria, unidade: f.unidade, setor: f.setor, quantidade: num(f.quantidade), minimo: num(f.minimo), desejado: num(f.desejado)};
+    const f = S.form, corpo = {nome: f.nome, categoria: f.categoria, unidade: f.unidade, setor: f.setor, quantidade: num(f.quantidade), minimo: num(f.minimo), desejado: num(f.desejado), sugestao_id: f.sugestao_id || undefined};
     if ([corpo.quantidade, corpo.minimo, corpo.desejado].some(Number.isNaN)) throw new Error('Confira os números informados.');
     await api(f.id ? `/api/produtos/${f.id}` : '/api/produtos', 'POST', corpo);
-    S.d.produtos = null; toast('Item salvo.'); S.pilha.pop(); await ir('estoque', {}, {trocar: true});
+    S.d.produtos = null; S.pilha.pop();
+    if (f.sugestao_id) { toast('Produto cadastrado. Aviso atendido.'); return ir('pedidos', {sub: 'sug'}, {trocar: true}); }
+    toast('Item salvo.'); await ir('estoque', {}, {trocar: true});
   }),
-  marcar: (el) => { const id = el.dataset.id; if (S.sel[id] !== undefined) delete S.sel[id]; else S.sel[id] = ''; const c = $('#lista'); c.innerHTML = listaPedir(); atualizarEnviar(); },
+  marcar: (el) => { const id = el.dataset.id; if (S.sel[id] !== undefined) delete S.sel[id]; else S.sel[id] = {q: '', o: ''}; const c = $('#lista'); c.innerHTML = listaPedir(); atualizarEnviar(); },
   'enviar-pedido': () => tente(async () => {
-    const itens = Object.entries(S.sel).map(([id, q]) => ({produto_id: +id, quantidade: q}));
+    const itens = Object.entries(S.sel).map(([id, v]) => ({produto_id: +id, quantidade: v.q, observacao: v.o}));
     const r = await api('/api/pedidos', 'POST', {itens});
     toast(r.repetidos.length ? `Enviado. Já em andamento: ${r.repetidos.join(', ')}` : 'Pedido enviado!'); S.sel = {};
     await ir(adm() ? 'pedidos' : 'meus', {}, {raiz: true});
@@ -469,6 +498,18 @@ const ACOES = {
     if (!confirm(`Excluir ${f.nome}?\n\nO login e a senha serão apagados e a pessoa não consegue mais entrar. Não dá para desfazer.\nO nome continua aparecendo apenas no histórico antigo.\n\nSe ela pode voltar um dia, prefira desativar o acesso.`)) return;
     await api(`/api/equipe/${f.id}/excluir`, 'POST', {}); toast('Colaborador excluído.'); S.pilha.pop(); await ir('equipe', {}, {trocar: true});
   }),
+  'sug-cadastrar': (el) => { const s = S.d.sug.find((x) => x.id === +el.dataset.id); ir('editar', {nome: s.texto, setor: s.setor, sugestao: s.id}); },
+  'sug-existe': (el) => tente(async () => {
+    const v = $('#jx-' + el.dataset.id).value; if (!v) throw new Error('Escolha na lista qual produto já existe.');
+    await api(`/api/sugestoes/${el.dataset.id}/resolver`, 'POST', {acao: 'ja_existe', produto_id: +v}); toast('Colaborador será avisado de que o item já existe.'); await atualizar();
+  }),
+  'sug-recusar': (el) => tente(async () => {
+    if (!confirm('Recusar essa sugestão?')) return;
+    await api(`/api/sugestoes/${el.dataset.id}/resolver`, 'POST', {acao: 'recusar'}); toast('Sugestão recusada.'); await atualizar();
+  }),
+  'enviar-sugestao': () => tente(async () => {
+    await api('/api/sugestoes', 'POST', {texto: $('#sg-texto').value}); toast('Aviso enviado ao admin.'); await ir('meus', {}, {raiz: true});
+  }),
   'salvar-senha': () => tente(async () => {
     const [a, n, n2] = ['#s-atual', '#s-nova', '#s-nova2'].map((s) => $(s).value);
     if (n !== n2) throw new Error('As senhas novas não são iguais.');
@@ -479,7 +520,8 @@ function atualizarEnviar() { const b = $('#enviar'); if (!b) return; const n = O
 
 const ENTRADAS = {
   busca: (el) => { S.q = el.value; const c = $('#lista'); if (c) c.innerHTML = S.tela === 'estoque' ? listaEstoque() : listaPedir(); },
-  qtdp: (el) => { S.sel[el.dataset.id] = el.value; },
+  qtdp: (el) => { S.sel[el.dataset.id].q = el.value; },
+  obs: (el) => { S.sel[el.dataset.id].o = el.value; },
   f: (el) => { S.form[el.dataset.c] = el.value; if (['quantidade', 'minimo', 'unidade'].includes(el.dataset.c)) notaEstoque(); },
   rec: (el) => { const q = num(el.value); $('#st-' + el.dataset.id).innerHTML = seloReceb(+el.dataset.ped, q); },
   cont: (el) => { const feito = el.value.trim() !== ''; const ck = $('#ck-' + el.dataset.id); ck.className = 'check' + (feito ? ' on' : ''); ck.textContent = feito ? '✓' : ''; },

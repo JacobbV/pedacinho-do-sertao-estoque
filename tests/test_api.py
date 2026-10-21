@@ -35,7 +35,7 @@ def test_fluxo_completo():
     # João pede (sem quantidade)
     pao = next(p["id"] for p in prods if p["nome"] == "Pão brioche")
     blend = next(p["id"] for p in prods if p["nome"] == "Blend bovino")
-    r = post(joao, "/api/pedidos", itens=[{"produto_id": pao}, {"produto_id": blend}])
+    r = post(joao, "/api/pedidos", itens=[{"produto_id": pao, "observacao": "  pode ser a marca X  " + "y" * 150}, {"produto_id": blend}])
     assert r.status_code == 201 and r.get_json()["criados"] == 2
     assert post(joao, "/api/pedidos", itens=[{"produto_id": pao}]).status_code == 409  # já tem pedido aberto
     bebida = next(p["id"] for p in adm.get("/api/produtos").get_json() if p["nome"] == "Água mineral")
@@ -46,12 +46,15 @@ def test_fluxo_completo():
     assert resumo["pedidos_aprovar"] == 1 and resumo["itens_baixos"] >= 2
     pedidos = adm.get("/api/pedidos?apenas=pendentes").get_json()
     assert len(pedidos) == 1 and pedidos[0]["itens"][0]["estoque"] is not None
+    obs = next(i["observacao"] for i in pedidos[0]["itens"] if i["produto_id"] == pao)
+    assert obs.startswith("pode ser a marca X") and len(obs) == 100
     cod = pedidos[0]["codigo"]
     ids = {i["produto_id"]: i["id"] for i in pedidos[0]["itens"]}
     assert post(adm, f"/api/pedidos/{cod}/aprovar", itens=[{"id": ids[pao], "quantidade": "30"},
                                                             {"id": ids[blend], "quantidade": 0}]).get_json()["recusados"] == 1
     compras = adm.get("/api/compras").get_json()
     assert len(compras["a_comprar"]) == 1 and compras["a_comprar"][0]["qtd"] == 30
+    assert compras["a_comprar"][0]["observacao"].startswith("pode ser a marca X")
     assert post(adm, "/api/compras/comprar", ids=[ids[pao]]).status_code == 200
 
     # Ana (pode_receber) confere a entrega: pediu 30, vieram 20
@@ -103,5 +106,48 @@ def test_fluxo_completo():
     assert post(adm, "/api/logout").status_code == 200
     assert adm.get("/api/me").status_code == 401
 
+def test_duplicados_e_sugestoes():
+    adm = novo(); assert post(adm, "/api/login", usuario="debora", senha="123456").status_code == 200
+    # nomes repetidos (ignora maiúsculas, acento, espaço e pontuação)
+    r = post(adm, "/api/produtos", nome="  CERVEJA   lata ", unidade="un")
+    assert r.status_code == 409 and "Cerveja lata" in r.get_json()["erro"]
+    assert post(adm, "/api/produtos", nome="agua  MINERAL", unidade="un", setor="Salão").status_code == 409
+    assert post(adm, "/api/produtos", nome="Cerveja lata · Heineken", unidade="un", setor="Salão").status_code == 201
+    assert post(adm, "/api/produtos", nome="cerveja lata - heineken", unidade="un").status_code == 409
+    assert post(adm, "/api/produtos", nome="!!!", unidade="un").status_code == 400
+    prods = adm.get("/api/produtos").get_json()
+    agua = next(p for p in prods if p["nome"] == "Água mineral"); tomate = next(p for p in prods if p["nome"] == "Tomate")
+    assert post(adm, f"/api/produtos/{tomate['id']}", nome="água mineral").status_code == 409
+    assert post(adm, f"/api/produtos/{agua['id']}", nome="ÁGUA MINERAL").status_code == 200   # o próprio nome, outra grafia
+
+    # colaboradora cria sugestões
+    assert post(adm, "/api/equipe", nome="Lucas", usuario="lucas", senha="abc123", setor="Salão", nivel="novo").status_code == 201
+    lucas = novo(); post(lucas, "/api/login", usuario="lucas", senha="abc123"); post(lucas, "/api/senha", atual="abc123", nova="senhalucas")
+    assert post(lucas, "/api/sugestoes", texto="cerveja LATA").status_code == 409      # já está na lista
+    assert post(lucas, "/api/sugestoes", texto="ab").status_code == 400
+    assert post(lucas, "/api/sugestoes", texto="Cerveja long neck Heineken").status_code == 201
+    assert post(lucas, "/api/sugestoes", texto="cerveja long  neck heineken").status_code == 409  # repetida
+    assert post(lucas, "/api/sugestoes", texto="Guardanapo grande").status_code == 201
+    assert len(lucas.get("/api/sugestoes").get_json()) == 2
+    assert adm.get("/api/resumo").get_json()["sugestoes_abertas"] == 2
+    assert post(lucas, "/api/sugestoes/1/resolver", acao="recusar").status_code == 403
+
+    sug = {s["texto"]: s["id"] for s in adm.get("/api/sugestoes").get_json()}
+    # admin: cadastrar produto a partir da sugestão
+    assert post(adm, "/api/produtos", nome="Cerveja long neck · Heineken", unidade="un", setor="Salão",
+                sugestao_id=sug["Cerveja long neck Heineken"]).status_code == 201
+    # admin: "já existe" exige produto; depois recusa a outra
+    assert post(adm, f"/api/sugestoes/{sug['Guardanapo grande']}/resolver", acao="ja_existe").status_code == 400
+    assert post(adm, f"/api/sugestoes/{sug['Guardanapo grande']}/resolver", acao="ja_existe", produto_id=agua["id"]).status_code == 200
+    assert post(adm, f"/api/sugestoes/{sug['Guardanapo grande']}/resolver", acao="recusar").status_code == 404  # já resolvida
+    minhas = {s["texto"]: s for s in lucas.get("/api/sugestoes").get_json()}
+    assert minhas["Cerveja long neck Heineken"]["status"] == "atendida" and minhas["Cerveja long neck Heineken"]["produto"] == "Cerveja long neck · Heineken"
+    assert minhas["Guardanapo grande"]["status"] == "existente"
+    assert adm.get("/api/resumo").get_json()["sugestoes_abertas"] == 0
+    # a lista de produtos do colaborador já mostra o item novo (setor Salão), sem estoque
+    nomes = [p["nome"] for p in lucas.get("/api/produtos").get_json()]
+    assert "Cerveja long neck · Heineken" in nomes
+
+
 if __name__ == "__main__":
-    test_fluxo_completo(); print("todos os testes passaram")
+    test_fluxo_completo(); test_duplicados_e_sugestoes(); print("todos os testes passaram")

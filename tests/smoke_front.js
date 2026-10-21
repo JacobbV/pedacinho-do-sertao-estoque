@@ -28,11 +28,17 @@ async function tela(rotulo, nome, p = {}) {
   // João pede, admin aprova
   const joao = {}; cookie = ''; await J('/api/login', 'POST', {usuario: 'joao', senha: 'abc123'}); await J('/api/senha', 'POST', {atual: 'abc123', nova: 'novasenha'});
   T.S.me = await fetch('/api/me').then((r) => r.json());
-  await tela('staff inicio', 'inicio'); await tela('staff pedir', 'pedidos'); await tela('staff meus', 'meus');
-  await J('/api/pedidos', 'POST', {itens: [{produto_id: 1}, {produto_id: 2}, {produto_id: 3}]});
+  await tela('staff inicio', 'inicio'); await tela('staff pedir', 'pedidos'); T.S.sel = {1: {q: '', o: 'x"y<z>'}}; T.render();
+  { const h = appEl.innerHTML; if (!h.includes('class="obs"') || h.includes('<z>') || /undefined|\[object/.test(h)) falhas.push('observação: html inválido'); else console.log('ok   campo de observação (escapado)'); }
+  await tela('staff sugerir', 'sugerir');
+  await J('/api/sugestoes', 'POST', {texto: 'Cerveja long neck Heineken'});
+  await tela('staff meus', 'meus');
+  await J('/api/pedidos', 'POST', {itens: [{produto_id: 1, observacao: 'pode ser a marca X'}, {produto_id: 2}, {produto_id: 3}]});
   await tela('staff meus (com pedido)', 'meus'); await tela('staff config', 'config');
   // admin continua
   cookie = ''; await J('/api/login', 'POST', {usuario: 'debora', senha: '123456'}); T.S.me = await fetch('/api/me').then((r) => r.json());
+  await tela('inicio com sugestão', 'inicio'); await tela('admin sugestões', 'pedidos', {sub: 'sug'});
+  await tela('cadastrar da sugestão', 'editar', {nome: 'Cerveja long neck Heineken', setor: 'Cozinha', sugestao: 1});
   await tela('admin pedidos pendentes', 'pedidos'); T.S.pedido = T.S.d.pedidos[0]; await tela('aprovar', 'aprovar');
   const ids = T.S.pedido.itens.map((i) => i.id);
   await J(`/api/pedidos/${T.S.pedido.codigo}/aprovar`, 'POST', {itens: ids.map((id) => ({id, quantidade: 10}))});

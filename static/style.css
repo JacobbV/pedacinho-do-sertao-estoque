@@ -118,3 +118,5 @@ svg.i{width:23px;height:23px;fill:none;stroke:currentColor;stroke-width:1.6;stro
 .login form{display:flex;flex-direction:column;gap:12px}
 .erro{color:var(--baixo);font-size:14px;margin:0;min-height:18px}
 .spin{text-align:center;padding:40px;color:var(--marrom)}
+
+.obs{height:38px;font-size:14px;background:#fff}
