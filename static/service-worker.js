@@ -1,4 +1,4 @@
-const CACHE = "pedacinho-estoque-v1";
+const CACHE = "pedacinho-estoque-v2";
 const ARQUIVOS = [
   "/",
   "/static/style.css",
