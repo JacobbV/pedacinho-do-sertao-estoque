@@ -1,4 +1,4 @@
-"""Pedacinho do Sertão — Controle de estoque (V2.0.0)
+"""Pedacinho do Sertão — Controle de estoque (V2.0.1)
 
 Login com níveis de acesso, pedidos sem quantidade (o admin define),
 compras com conferência de entrega e balanço de estoque por etapas.
@@ -455,6 +455,24 @@ def api_editar_colaborador(uid):
             return erro("A senha precisa ter pelo menos 6 caracteres.")
         con.execute("UPDATE usuarios SET senha_hash = ?, trocar_senha = 1 WHERE id = ?",
                     (generate_password_hash(str(nova)), uid))
+    con.commit()
+    con.close()
+    return jsonify(ok=True)
+
+
+@app.post("/api/equipe/<int:uid>/excluir")
+@protegido(admin=True)
+def api_excluir_colaborador(uid):
+    """Apaga o acesso (login e senha). O nome continua só como texto no histórico antigo."""
+    if uid == g.usuario["id"]:
+        return erro("Você não pode excluir o seu próprio acesso.")
+    con = conectar()
+    alvo = con.execute("SELECT id FROM usuarios WHERE id = ?", (uid,)).fetchone()
+    if alvo is None:
+        con.close()
+        return erro("Colaborador não encontrado.", 404)
+    con.execute("UPDATE solicitacoes SET usuario_id = NULL WHERE usuario_id = ?", (uid,))
+    con.execute("DELETE FROM usuarios WHERE id = ?", (uid,))
     con.commit()
     con.close()
     return jsonify(ok=True)

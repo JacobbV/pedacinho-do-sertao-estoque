@@ -1,5 +1,5 @@
 'use strict';
-/* Pedacinho do Sertão — app V2 (JavaScript puro) */
+/* Pedacinho do Sertão — app V2 (JavaScript puro) — V2.0.1 */
 const app = document.getElementById('app');
 const S = {me: null, tela: 'inicio', p: {}, sub: null, pilha: [], d: {}, bal: false, form: null, sel: {}, filtro: null, q: ''};
 const TELAS = {};
@@ -23,6 +23,7 @@ const num = (v) => { const n = parseFloat(String(v).replace(',', '.')); return N
 const data = (s) => { const m = String(s || '').match(/(\d+)-(\d+)-(\d+)[ T](\d+):(\d+)/); return m ? `${m[3]}/${m[2]} ${m[4]}:${m[5]}` : (s || ''); };
 const ic = (n) => `<svg class="i" viewBox="0 0 24 24">${IC[n]}</svg>`;
 const adm = () => S.me.nivel === 'admin';
+const hoje = () => new Date().toLocaleDateString('pt-BR', {weekday: 'long', day: 'numeric', month: 'long'});
 const saud = () => { const h = new Date().getHours(); return h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite'; };
 const selo = (k, t) => `<span class="selo ${k}"><i>${k === 'ok' ? '✓' : k === 'adm' ? '★' : '!'}</i>${t}</span>`;
 const seloEst = (s) => selo(s, {baixo: 'Baixo', limite: 'No limite', ok: 'OK'}[s]);
@@ -77,7 +78,7 @@ function cab({titulo, sub, voltar: v, home}) {
   const av = `<button class="avatar" data-a="menu" aria-label="Abrir menu">${esc((S.me.nome || '?')[0].toUpperCase())}</button>`;
   if (home) {
     return `<div class="cab home"><img class="sertao" src="/static/img/cabecalho-sertao.jpg" alt=""><img class="logo" src="/static/img/cabecalho-logo.jpg" alt="Pedacinho do Sertão">${av}
-      <div class="titulo"><h1>${saud()}, ${esc(S.me.nome.split(' ')[0])}</h1><div class="muted">${new Date().toLocaleDateString('pt-BR', {weekday: 'long', day: 'numeric', month: 'long'})}</div></div></div>`;
+      <div class="titulo"><h1 id="saud-t">${saud()}, ${esc(S.me.nome.split(' ')[0])}</h1><div class="muted" id="data-t">${hoje()}</div></div></div>`;
   }
   return `<div class="cab">${v ? '<button class="voltar" data-a="voltar" aria-label="Voltar">‹</button>' : '<img class="logo" src="/static/img/cabecalho-logo.jpg" alt="Pedacinho do Sertão">'}${av}
     <div class="titulo"><h1>${esc(titulo)}</h1><div class="pequeno">${esc(sub || '')}</div></div></div><div class="regua"></div>`;
@@ -373,7 +374,7 @@ TELAS.colaborador = {
       ${f.nivel === 'novo' ? '<div class="pequeno">Quem é novo só pode pedir. Mude para Padrão quando quiser liberar mais.</div>' : ''}
       ${!ed ? '<div class="pequeno">No primeiro acesso a pessoa será pedida a trocar a senha.</div>' : ''}`;
   },
-  foot: () => btn(S.form.id ? 'Salvar alterações' : 'Criar acesso', 'salvar-colaborador'),
+  foot: () => btn(S.form.id ? 'Salvar alterações' : 'Criar acesso', 'salvar-colaborador') + (S.form.id && S.form.id !== S.me.id ? btn('Excluir colaborador', 'excluir-colaborador', 'perigo') : ''),
 };
 
 /* ---------- CONFIGURAÇÕES e troca de senha ---------- */
@@ -463,6 +464,11 @@ const ACOES = {
     else await api('/api/equipe', 'POST', {nome: f.nome, usuario: f.usuario, senha: f.senha, nivel: f.nivel, setor: f.setor, pode_pedir: f.pode_pedir, pode_receber: f.pode_receber, pode_contar: f.pode_contar});
     toast('Colaborador salvo.'); S.pilha.pop(); await ir('equipe', {}, {trocar: true});
   }),
+  'excluir-colaborador': () => tente(async () => {
+    const f = S.form;
+    if (!confirm(`Excluir ${f.nome}?\n\nO login e a senha serão apagados e a pessoa não consegue mais entrar. Não dá para desfazer.\nO nome continua aparecendo apenas no histórico antigo.\n\nSe ela pode voltar um dia, prefira desativar o acesso.`)) return;
+    await api(`/api/equipe/${f.id}/excluir`, 'POST', {}); toast('Colaborador excluído.'); S.pilha.pop(); await ir('equipe', {}, {trocar: true});
+  }),
   'salvar-senha': () => tente(async () => {
     const [a, n, n2] = ['#s-atual', '#s-nova', '#s-nova2'].map((s) => $(s).value);
     if (n !== n2) throw new Error('As senhas novas não são iguais.');
@@ -483,6 +489,13 @@ document.addEventListener('click', (e) => {
   const f = ACOES[el.dataset.a]; if (f) f(el);
 });
 document.addEventListener('input', (e) => { const f = ENTRADAS[e.target.dataset.i]; if (f) f(e.target); });
+/* saudação e data acompanham o relógio; ao voltar para o app, o início é recarregado */
+function atualizarSaudacao() {
+  if (!S.me) return; const h = $('#saud-t'), d = $('#data-t');
+  if (h) h.textContent = `${saud()}, ${S.me.nome.split(' ')[0]}`; if (d) d.textContent = hoje();
+}
+setInterval(atualizarSaudacao, 30000);
+document.addEventListener('visibilitychange', () => { if (document.hidden || !S.me) return; atualizarSaudacao(); if (S.tela === 'inicio') atualizar(); });
 /* puxar para o lado abre o menu (borda direita) e fecha (arrastando para a direita) */
 let x0 = null;
 document.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; }, {passive: true});

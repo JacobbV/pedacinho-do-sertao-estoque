@@ -35,3 +35,8 @@ python tests/test_api.py      # testa o fluxo completo da API
 
 ## Linha para o README (histórico de versões)
 | **V2.0.0** | 21/10/2026 | `feat` | Login com níveis (Admin/Padrão/Novo), pedidos sem quantidade com aprovação do admin, conferência de entrega parcial, balanço por etapas com contagem às cegas, menu lateral e novo visual. |
+
+## V2.0.1
+- Saudação (Bom dia / Boa tarde / Boa noite) e data acompanham o relógio e se atualizam sozinhas; ao voltar para o app, o início recarrega os números.
+- Admin pode **excluir colaborador** (Equipe → tocar na pessoa → Excluir colaborador). Apaga login e senha; quem estiver logado perde o acesso na hora. O nome continua só como texto no histórico antigo. Para quem pode voltar, use "Acesso ativo" (desativar).
+- Arquivos que mudaram: `app.py` e `static/app.js`.

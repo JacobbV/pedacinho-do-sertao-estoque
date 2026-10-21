@@ -91,6 +91,15 @@ def test_fluxo_completo():
     # editar produto e proteção do próprio acesso
     assert post(adm, f"/api/produtos/{pao}", quantidade=50, minimo=20).status_code == 200
     assert post(adm, "/api/equipe/1", nivel="padrao").status_code == 400
+    # excluir colaborador: some o acesso, o histórico fica com o nome
+    joao_id = next(u["id"] for u in adm.get("/api/equipe").get_json() if u["usuario"] == "joao")
+    assert post(adm, f"/api/equipe/{adm.get('/api/me').get_json()['id']}/excluir").status_code == 400
+    assert post(joao, f"/api/equipe/{joao_id}/excluir").status_code == 403
+    assert post(adm, f"/api/equipe/{joao_id}/excluir").status_code == 200
+    assert joao.get("/api/produtos").status_code == 401
+    assert post(novo(), "/api/login", usuario="joao", senha="novasenha").status_code == 401
+    assert not any(u["usuario"] == "joao" for u in adm.get("/api/equipe").get_json())
+    assert post(adm, f"/api/equipe/{joao_id}/excluir").status_code == 404
     assert post(adm, "/api/logout").status_code == 200
     assert adm.get("/api/me").status_code == 401
 
