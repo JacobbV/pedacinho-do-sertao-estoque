@@ -8,7 +8,7 @@ const stub = () => ({innerHTML: '', textContent: '', className: '', value: '', s
   classList: {toggle() {}, add() {}, remove() {}, contains: () => false}, closest: () => null, matches: () => false});
 const appEl = stub();
 globalThis.window = globalThis; window.innerWidth = 400; globalThis.navigator = {}; globalThis.location = {href: ''};
-globalThis.confirm = () => true;
+globalThis.confirm = () => true; let abertas = []; globalThis.open = (u) => abertas.push(u);
 globalThis.document = {getElementById: () => appEl, querySelector: (s) => (s === '#tela' ? null : stub()), querySelectorAll: () => [], addEventListener() {}};
 const J = (u, m = 'POST', b = {}) => fetch(u, {method: m, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(b)}).then((r) => r.json());
 const falhas = [];
@@ -24,7 +24,7 @@ async function tela(rotulo, nome, p = {}) {
   await J('/api/equipe', 'POST', {nome: 'Ana', usuario: 'ana', senha: 'abc123', setor: 'Salão', nivel: 'padrao', pode_receber: true, pode_contar: true});
   const T = __T; T.S.me = await fetch('/api/me').then((r) => r.json());
   for (const [r, n, p] of [['admin inicio', 'inicio'], ['estoque', 'estoque'], ['editar', 'editar', {id: 1}], ['novo produto', 'editar', {}], ['admin pedir', 'pedir'],
-    ['pedidos', 'pedidos'], ['compras', 'compras'], ['balanço fechado', 'balanco'], ['equipe', 'equipe'], ['colab novo', 'colaborador', {}], ['colab edit', 'colaborador', {id: 2}], ['config', 'config']]) await tela(r, n, p);
+    ['pedidos', 'pedidos'], ['compras', 'compras'], ['balanço fechado', 'balanco'], ['equipe', 'equipe'], ['colab novo', 'colaborador', {}], ['colab edit', 'colaborador', {id: 2}], ['config', 'config'], ['relatórios 30', 'relatorios'], ['relatórios 7', 'relatorios', {sub: '7'}]]) await tela(r, n, p);
   // João pede, admin aprova
   const joao = {}; cookie = ''; await J('/api/login', 'POST', {usuario: 'joao', senha: 'abc123'}); await J('/api/senha', 'POST', {atual: 'abc123', nova: 'novasenha'});
   T.S.me = await fetch('/api/me').then((r) => r.json());
@@ -43,6 +43,10 @@ async function tela(rotulo, nome, p = {}) {
   const ids = T.S.pedido.itens.map((i) => i.id);
   await J(`/api/pedidos/${T.S.pedido.codigo}/aprovar`, 'POST', {itens: ids.map((id) => ({id, quantidade: 10}))});
   await J('/api/compras/comprar', 'POST', {ids});
+  await tela('compras a comprar', 'compras', {sub: 'comprar'});
+  T.S.d.compras = {a_comprar: [{id: 1, produto: 'Pão brioche', unidade: 'un', qtd: 30, observacao: 'Indaiá', solicitante: 'Lucas', produto_id: 1}], a_receber: []}; T.S.sel = {1: true};
+  T.ACOES.whatsapp(); const msg = decodeURIComponent(abertas[0] || '');
+  if (!msg.includes('• Pão brioche: 30 un (Indaiá)') || !msg.startsWith('https://wa.me/?text=')) falhas.push('whatsapp: ' + msg); else console.log('ok   texto do WhatsApp');
   await tela('compras a receber', 'compras', {sub: 'receber'}); T.S.sel = Object.fromEntries(ids.map((i) => [i, true]));
   T.S.entrega = T.S.d.compras.a_receber; await tela('entrega', 'entrega');
   await J('/api/balanco/iniciar', 'POST', {etapas: ['Cozinha · Ingredientes', 'Salão · Bebidas']});

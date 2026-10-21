@@ -1,25 +1,33 @@
-"""Pedacinho do Sertão — Controle de estoque (V2.0.3)
+"""Pedacinho do Sertão — Controle de estoque (V2.1.1)
 
 Login com níveis de acesso, pedidos sem quantidade (o admin define),
 compras com conferência de entrega e balanço de estoque por etapas.
 """
+import io
 import os
 import re
 import secrets
 import sqlite3
+import tempfile
 import time
 import unicodedata
-from datetime import timedelta
+import zipfile
+from datetime import date, datetime, timedelta
 from functools import wraps
 from pathlib import Path
 
-from flask import Flask, g, jsonify, redirect, render_template, request, session
+from flask import (Flask, abort, g, jsonify, redirect, render_template, request, send_file,
+                   send_from_directory, session)
 from werkzeug.security import check_password_hash, generate_password_hash
 
 BASE_DIR = Path(__file__).resolve().parent
 INSTANCE_DIR = BASE_DIR / "instance"
 INSTANCE_DIR.mkdir(exist_ok=True)
 DATABASE = Path(os.environ.get("PEDACINHO_DB", INSTANCE_DIR / "pedacinho.db"))
+BACKUP_DIR = Path(os.environ.get("PEDACINHO_BACKUPS", DATABASE.parent / "backups"))
+FOTOS_DIR = Path(os.environ.get("PEDACINHO_FOTOS", DATABASE.parent / "fotos"))
+BACKUP_MANTER = int(os.environ.get("BACKUP_MANTER", "21"))
+FOTOS_DIR.mkdir(parents=True, exist_ok=True)
 
 ETAPAS = ["Cozinha · Ingredientes", "Salão · Bebidas", "Salão · Descartáveis"]
 SETORES = ("Cozinha", "Salão")
@@ -42,6 +50,7 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     PERMANENT_SESSION_LIFETIME=timedelta(days=30),
+    MAX_CONTENT_LENGTH=2 * 1024 * 1024,
 )
 
 
@@ -64,11 +73,11 @@ def adicionar_coluna(con, tabela, coluna, definicao):
     return False
 
 
-def registrar_movimento(con, produto_id, tipo, quantidade, observacao, usuario=None):
+def registrar_movimento(con, produto_id, tipo, quantidade, observacao, usuario=None, diferenca=None):
     con.execute(
-        """INSERT INTO movimentos (produto_id, tipo, quantidade, observacao, usuario)
-           VALUES (?, ?, ?, ?, ?)""",
-        (produto_id, tipo, quantidade, observacao, usuario),
+        """INSERT INTO movimentos (produto_id, tipo, quantidade, observacao, usuario, diferenca)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (produto_id, tipo, quantidade, observacao, usuario, diferenca),
     )
 
 
@@ -111,6 +120,7 @@ def preparar_banco():
             ativo INTEGER NOT NULL DEFAULT 1,
             criado_em TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
         );
+        CREATE TABLE IF NOT EXISTS configuracoes (chave TEXT PRIMARY KEY, valor TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS sugestoes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             texto TEXT NOT NULL, solicitante TEXT NOT NULL, usuario_id INTEGER,
@@ -149,6 +159,7 @@ def preparar_banco():
     adicionar_coluna(con, "solicitacoes", "qtd_recebida", "REAL")
     adicionar_coluna(con, "solicitacoes", "usuario_id", "INTEGER")
     adicionar_coluna(con, "movimentos", "usuario", "TEXT")
+    adicionar_coluna(con, "movimentos", "diferenca", "REAL")
     con.execute(
         """UPDATE solicitacoes SET qtd_aprovada = quantidade
            WHERE qtd_aprovada IS NULL AND status IN ('Aprovada','Comprada','Recebida')"""
@@ -185,6 +196,11 @@ def numero(valor):
     if isinstance(valor, str):
         valor = valor.replace(",", ".")
     return float(valor)
+
+
+def get_config(con, chave, padrao):
+    r = con.execute("SELECT valor FROM configuracoes WHERE chave = ?", (chave,)).fetchone()
+    return r["valor"] if r else padrao
 
 
 def chave_nome(texto):
@@ -1106,7 +1122,8 @@ def api_fechar_balanco():
     for i in itens:
         con.execute("UPDATE produtos SET quantidade = ? WHERE id = ?", (i["contado"], i["id"]))
         registrar_movimento(con, i["id"], "Balanço", i["contado"],
-                            f"Balanço: de {i['sistema']:g} para {i['contado']:g} {i['unidade']}.", g.usuario["nome"])
+                            f"Balanço: de {i['sistema']:g} para {i['contado']:g} {i['unidade']}.", g.usuario["nome"],
+                            diferenca=i["diferenca"])
     con.execute("UPDATE balancos SET status='fechado', fechado_em=datetime('now','localtime') WHERE id=?", (bal["id"],))
     con.commit()
     con.close()
@@ -1138,10 +1155,21 @@ def api_resumo():
                        "WHERE status = 'Solicitada'").fetchone()[0]
     receber = con.execute("SELECT COUNT(*) FROM solicitacoes WHERE status = 'Comprada'").fetchone()[0]
     sugestoes = con.execute("SELECT COUNT(*) FROM sugestoes WHERE status = 'aberta'").fetchone()[0]
+    lembrete = None
+    prazo = int(get_config(con, "balanco_prazo_dias", "30"))
+    if prazo > 0 and bal is None:
+        ult = con.execute("""SELECT CAST(julianday('now', 'localtime') - julianday(fechado_em) AS INTEGER) AS d
+                           FROM balancos WHERE status = 'fechado' ORDER BY id DESC LIMIT 1""").fetchone()
+        nunca = ult is None
+        if nunca:
+            ult = con.execute("""SELECT CAST(julianday('now', 'localtime') - julianday(MIN(criado_em)) AS INTEGER) AS d FROM usuarios""").fetchone()
+        dias = ult["d"] or 0
+        if dias >= prazo:
+            lembrete = {"dias": dias, "prazo": prazo, "nunca": nunca}
     con.close()
     return jsonify(
         itens_baixos=sum(1 for p in produtos if status_estoque(p["quantidade"], p["minimo"]) == "baixo"),
-        pedidos_aprovar=pend, compras_receber=receber, sugestoes_abertas=sugestoes, balanco=balanco,
+        pedidos_aprovar=pend, compras_receber=receber, sugestoes_abertas=sugestoes, balanco_lembrete=lembrete, balanco=balanco,
         atencao=[{"id": p["id"], "nome": p["nome"], "quantidade": p["quantidade"], "unidade": p["unidade"],
                   "status": status_estoque(p["quantidade"], p["minimo"])} for p in atencao[:5]])
 
@@ -1155,6 +1183,198 @@ def api_historico():
            JOIN produtos p ON p.id = m.produto_id ORDER BY m.id DESC LIMIT 100""").fetchall()
     con.close()
     return jsonify([dict(l) for l in linhas])
+
+
+# --------------------------------------------------------------- relatórios (admin)
+@app.get("/api/relatorios")
+@protegido(admin=True)
+def api_relatorios():
+    try:
+        dias = min(max(int(request.args.get("dias", 30)), 1), 365)
+    except ValueError:
+        dias = 30
+    desde = f"-{dias} days"
+    con = conectar()
+    mais = con.execute(
+        """SELECT p.nome, p.unidade, COUNT(*) AS pedidos,
+           COALESCE(SUM(CASE WHEN s.status IN ('Aprovada','Comprada','Recebida') THEN s.qtd_aprovada END), 0) AS aprovado
+           FROM solicitacoes s JOIN produtos p ON p.id = s.produto_id
+           WHERE s.criada_em >= datetime('now','localtime',?) GROUP BY p.id ORDER BY pedidos DESC, p.nome LIMIT 10""",
+        (desde,)).fetchall()
+    tot = con.execute(
+        """SELECT COUNT(DISTINCT COALESCE(pedido_codigo, 'L' || id)) AS pedidos, COUNT(*) AS itens
+           FROM solicitacoes WHERE criada_em >= datetime('now','localtime',?)""", (desde,)).fetchone()
+    faltas = con.execute(
+        """SELECT p.nome AS produto, p.unidade, s.qtd_aprovada AS pedido, s.qtd_recebida AS recebido, s.criada_em
+           FROM solicitacoes s JOIN produtos p ON p.id = s.produto_id
+           WHERE s.status = 'Recebida' AND s.qtd_recebida < s.qtd_aprovada
+           AND s.criada_em >= datetime('now','localtime',?) ORDER BY s.id DESC LIMIT 10""", (desde,)).fetchall()
+    difs = con.execute(
+        """SELECT p.nome AS produto, p.unidade, ROUND(SUM(m.diferenca), 2) AS diferenca, COUNT(*) AS vezes
+           FROM movimentos m JOIN produtos p ON p.id = m.produto_id
+           WHERE m.tipo = 'Balanço' AND m.diferenca IS NOT NULL AND m.diferenca != 0
+           AND m.criada_em >= datetime('now','localtime',?)
+           GROUP BY p.id HAVING diferenca != 0 ORDER BY ABS(SUM(m.diferenca)) DESC LIMIT 10""", (desde,)).fetchall()
+    ritmo = con.execute(
+        """SELECT p.nome AS produto, p.unidade, p.quantidade AS estoque, SUM(s.qtd_recebida) AS recebido
+           FROM solicitacoes s JOIN produtos p ON p.id = s.produto_id
+           WHERE s.status = 'Recebida' AND s.criada_em >= datetime('now','localtime',?)
+           GROUP BY p.id HAVING recebido > 0""", (desde,)).fetchall()
+    con.close()
+    # estimativa: no ritmo das entregas recebidas no período, quantos dias o estoque atual dura
+    cobertura = sorted(
+        ({"produto": r["produto"], "unidade": r["unidade"], "estoque": r["estoque"],
+          "por_semana": round(r["recebido"] / dias * 7, 2), "dias": round(r["estoque"] / (r["recebido"] / dias))}
+         for r in ritmo), key=lambda c: c["dias"])[:8]
+    return jsonify(dias=dias, pedidos=tot["pedidos"], itens=tot["itens"], mais_pedidos=[dict(m) for m in mais],
+                   faltas=[dict(f) for f in faltas], diferencas=[dict(d) for d in difs], cobertura=cobertura)
+
+
+# --------------------------------------------------------------- configurações
+@app.get("/api/config")
+@protegido(admin=True)
+def api_config():
+    con = conectar()
+    prazo = int(get_config(con, "balanco_prazo_dias", "30"))
+    con.close()
+    return jsonify(balanco_prazo_dias=prazo)
+
+
+@app.post("/api/config")
+@protegido(admin=True)
+def api_salvar_config():
+    try:
+        prazo = int(numero((request.get_json(silent=True) or {}).get("balanco_prazo_dias")))
+        if not 0 <= prazo <= 365:
+            raise ValueError
+    except (TypeError, ValueError):
+        return erro("Informe um número de dias entre 0 e 365 (0 desliga o aviso).")
+    con = conectar()
+    con.execute("INSERT INTO configuracoes (chave, valor) VALUES ('balanco_prazo_dias', ?) "
+                "ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor", (str(prazo),))
+    con.commit()
+    con.close()
+    return jsonify(ok=True)
+
+
+# --------------------------------------------------------------- backup
+def copia_consistente(destino):
+    """Cópia segura do banco (mesmo com o app em uso), usando a API de backup do SQLite."""
+    origem = conectar()
+    alvo = sqlite3.connect(destino)
+    origem.backup(alvo)
+    alvo.close()
+    origem.close()
+
+
+def fazer_backup(manual=False):
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    agora = datetime.now()
+    nome = f"pedacinho-{agora:%Y-%m-%d}" + (f"-{agora:%H%M%S}" if manual else "") + ".db"
+    destino = BACKUP_DIR / nome
+    if destino.exists() and not manual:
+        return nome
+    copia_consistente(destino)
+    for velho in sorted(BACKUP_DIR.glob("pedacinho-*.db"))[:-BACKUP_MANTER]:
+        velho.unlink(missing_ok=True)
+    return nome
+
+
+_dia_backup = None
+
+
+@app.before_request
+def backup_diario():
+    """Na primeira chamada de cada dia, o app guarda uma cópia do banco sozinho."""
+    global _dia_backup
+    hoje = date.today().isoformat()
+    if _dia_backup == hoje or not request.path.startswith("/api/"):
+        return
+    _dia_backup = hoje
+    try:
+        fazer_backup()
+    except Exception:  # o backup nunca pode derrubar o app
+        app.logger.exception("Falha no backup diário")
+
+
+@app.get("/api/backups")
+@protegido(admin=True)
+def api_backups():
+    arquivos = sorted(BACKUP_DIR.glob("pedacinho-*.db"), reverse=True) if BACKUP_DIR.exists() else []
+    itens = [{"nome": f.name, "kb": max(f.stat().st_size // 1024, 1), "manual": len(f.stem) > 20,
+              "criado_em": datetime.fromtimestamp(f.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")} for f in arquivos[:10]]
+    return jsonify(itens=itens, manter=BACKUP_MANTER)
+
+
+@app.post("/api/backups")
+@protegido(admin=True)
+def api_backup_agora():
+    return jsonify(ok=True, nome=fazer_backup(manual=True)), 201
+
+
+@app.get("/api/backups/baixar")
+@protegido(admin=True)
+def api_baixar_backup():
+    """Zip com o banco (cópia consistente) e as fotos, para guardar fora do servidor."""
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp.close()
+    try:
+        copia_consistente(tmp.name)
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            z.write(tmp.name, "pedacinho.db")
+            for f in sorted(FOTOS_DIR.glob("*.jpg")):
+                z.write(f, f"fotos/{f.name}")
+    finally:
+        os.unlink(tmp.name)
+    buf.seek(0)
+    return send_file(buf, mimetype="application/zip", as_attachment=True,
+                     download_name=f"pedacinho-backup-{date.today().isoformat()}.zip")
+
+
+# --------------------------------------------------------------- fotos dos produtos
+@app.get("/api/fotos")
+@protegido()
+def api_fotos():
+    return jsonify({f.stem: int(f.stat().st_mtime) for f in FOTOS_DIR.glob("*.jpg") if f.stem.isdigit()})
+
+
+@app.get("/fotos/<int:pid>.jpg")
+def servir_foto(pid):
+    if usuario_atual() is None:
+        abort(401)
+    if not (FOTOS_DIR / f"{pid}.jpg").exists():
+        abort(404)
+    resp = send_from_directory(FOTOS_DIR, f"{pid}.jpg", mimetype="image/jpeg", max_age=31536000)
+    resp.cache_control.public = False
+    resp.cache_control.private = True
+    return resp
+
+
+@app.post("/api/produtos/<int:pid>/foto")
+@protegido(admin=True)
+def api_enviar_foto(pid):
+    dados = request.get_data(cache=False)
+    if not (dados[:3] == b"\xff\xd8\xff" and dados[-2:] == b"\xff\xd9"):
+        return erro("Envie uma imagem JPEG válida.")
+    if len(dados) > 800_000:
+        return erro("A imagem é grande demais.")
+    con = conectar()
+    existe = con.execute("SELECT 1 FROM produtos WHERE id = ?", (pid,)).fetchone()
+    con.close()
+    if not existe:
+        return erro("Produto não encontrado.", 404)
+    temporario = FOTOS_DIR / f".{pid}.tmp"
+    temporario.write_bytes(dados)
+    os.replace(temporario, FOTOS_DIR / f"{pid}.jpg")
+    return jsonify(ok=True)
+
+
+@app.post("/api/produtos/<int:pid>/foto/remover")
+@protegido(admin=True)
+def api_remover_foto(pid):
+    (FOTOS_DIR / f"{pid}.jpg").unlink(missing_ok=True)
+    return jsonify(ok=True)
 
 
 preparar_banco()

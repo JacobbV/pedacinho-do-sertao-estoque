@@ -24,7 +24,7 @@
 4. Opcional (recomendado): na aba Web, em *Environment variables*, defina `SECRET_KEY` com um texto longo e aleatório. Sem isso o app gera uma chave sozinho em `instance/secret_key`.
 
 ## Fotos dos produtos (opcional)
-Coloque `static/img/produtos/<id do produto>.jpg`. Se não existir, aparece o ícone de caixa.
+A partir da V2.1.0 as fotos são enviadas pelo próprio app (Estoque → tocar no item → Adicionar foto). Sem foto, aparece o ícone de caixa.
 
 ## Rodar local e testar
 ```
@@ -50,3 +50,15 @@ python tests/test_api.py      # testa o fluxo completo da API
 - **"Não achei o item"** (colaborador, no fim da lista de Novo pedido): escreve o que falta, e isso vira um **aviso para o admin**, sem criar produto nem mexer no estoque. Se o texto já bate com um produto da lista, o app avisa na hora.
 - **Admin:** aviso amarelo no Início e aba **Pedidos → Sugestões**. Para cada aviso: **Cadastrar** (abre o cadastro já com o nome e o setor preenchidos), **Já existe** (escolhe o produto da lista) ou **Recusar**. O colaborador vê o resultado em Meus pedidos → "Itens que pedi para cadastrar".
 - Arquivos que mudaram: `app.py`, `static/app.js` (a tabela nova `sugestoes` é criada sozinha no banco, sem perder nada).
+
+## V2.1.0
+- **Backup:** o app guarda uma cópia do banco sozinho 1 vez por dia (na primeira vez que alguém usa o app no dia). Em Menu → Configurações o admin vê os últimos backups, pode **fazer um backup agora** e **baixar uma cópia (banco + fotos)** em .zip para guardar fora do servidor (e-mail, Drive). Esse arquivo tem todos os dados e as senhas criptografadas: não compartilhe.
+- **WhatsApp:** em Compras → A comprar, o botão **Enviar lista pelo WhatsApp** monta o texto com os itens marcados (quantidade e observação) e abre o WhatsApp para você escolher o contato.
+- **Lembrete de balanço:** aviso amarelo no Início do admin quando o último balanço passar do prazo. O prazo (em dias) é ajustado em Configurações; 0 desliga.
+- **Fotos:** admin adiciona, troca e remove a foto de cada produto. A foto é reduzida no celular antes de enviar. Só quem está logado vê as fotos.
+- **Relatórios** (Menu → Relatórios, só admin; 7, 30 ou 90 dias): itens mais pedidos, entregas com falta, diferenças encontradas nos balanços e uma **estimativa** de quanto tempo o estoque dura (pelo ritmo das entregas recebidas; não mede o consumo real).
+- Arquivos que mudaram: `app.py`, `static/app.js`, `static/style.css`, `tests/`. As tabelas e colunas novas são criadas sozinhas no banco, sem perder dados.
+- Onde ficam os dados: `instance/` (banco, `backups/`, `fotos/`). Essa pasta não vai para o Git. Para restaurar um backup: pare o app, troque `instance/pedacinho.db` pelo arquivo `.db` do backup e dê Reload.
+
+## V2.1.1
+- Acerto visual: a frase "…O item aparece como **Baixo** no início" na tela Editar item agora aparece corrida, sem espaços estranhos. Arquivos: `static/style.css`, `static/app.js`, `app.py` (só o número da versão).

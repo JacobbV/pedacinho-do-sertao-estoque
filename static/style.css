@@ -120,3 +120,6 @@ svg.i{width:23px;height:23px;fill:none;stroke:currentColor;stroke-width:1.6;stro
 .spin{text-align:center;padding:40px;color:var(--marrom)}
 
 .obs{height:38px;font-size:14px;background:#fff}
+
+/* aviso de status do item: texto corrido (o negrito não pode virar coluna separada) */
+#nota-est{display:block}

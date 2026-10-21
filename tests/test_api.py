@@ -149,5 +149,75 @@ def test_duplicados_e_sugestoes():
     assert "Cerveja long neck · Heineken" in nomes
 
 
+def test_backup_fotos_e_lembrete():
+    import io, zipfile
+    adm = novo(); assert post(adm, "/api/login", usuario="debora", senha="123456").status_code == 200
+    # lembrete de balanço: configurável e só aparece depois do prazo
+    assert adm.get("/api/config").get_json()["balanco_prazo_dias"] == 30
+    assert adm.get("/api/resumo").get_json()["balanco_lembrete"] is None
+    con = A.conectar()                                     # começa sem nenhum balanço feito
+    for tab in ("balanco_contagens", "balanco_etapas", "balancos"):
+        con.execute(f"DELETE FROM {tab}")
+    con.commit(); con.close()
+    for ruim in (-1, 400, "x", None):
+        assert post(adm, "/api/config", balanco_prazo_dias=ruim).status_code == 400
+    assert post(adm, "/api/config", balanco_prazo_dias=7).status_code == 200
+    con = A.conectar(); con.execute("UPDATE usuarios SET criado_em = datetime('now','localtime','-10 days')"); con.commit(); con.close()
+    l = adm.get("/api/resumo").get_json()["balanco_lembrete"]
+    assert l and l["nunca"] is True and l["dias"] >= 10 and l["prazo"] == 7
+    assert post(adm, "/api/config", balanco_prazo_dias=0).status_code == 200          # 0 desliga
+    assert adm.get("/api/resumo").get_json()["balanco_lembrete"] is None
+    # depois de fechar um balanço, a conta passa a ser desde o último fechamento
+    post(adm, "/api/config", balanco_prazo_dias=3)
+    con = A.conectar(); con.execute("INSERT INTO balancos (status, fechado_em) VALUES ('fechado', datetime('now','localtime','-5 days'))"); con.commit(); con.close()
+    l = adm.get("/api/resumo").get_json()["balanco_lembrete"]
+    assert l and l["nunca"] is False and l["dias"] >= 5
+
+    # backup: automático (1x por dia), manual e download com fotos
+    assert len(adm.get("/api/backups").get_json()["itens"]) >= 1
+    n = len(adm.get("/api/backups").get_json()["itens"])
+    assert post(adm, "/api/backups").status_code == 201
+    itens = adm.get("/api/backups").get_json()["itens"]
+    assert len(itens) == n + 1 and any(i["manual"] for i in itens)
+    pid = adm.get("/api/produtos").get_json()[0]["id"]
+    jpeg = b"\xff\xd8\xff\xe0" + b"0" * 200 + b"\xff\xd9"
+    assert adm.post(f"/api/produtos/{pid}/foto", data=jpeg, content_type="image/jpeg").status_code == 200
+    z = zipfile.ZipFile(io.BytesIO(adm.get("/api/backups/baixar").data))
+    assert "pedacinho.db" in z.namelist() and f"fotos/{pid}.jpg" in z.namelist()
+
+    # fotos: só admin envia, só JPEG, só logado vê
+    assert adm.get("/api/fotos").get_json()[str(pid)] > 0
+    r = adm.get(f"/fotos/{pid}.jpg"); assert r.status_code == 200 and r.data == jpeg
+    assert novo().get(f"/fotos/{pid}.jpg").status_code == 401
+    assert adm.post(f"/api/produtos/{pid}/foto", data=b"<?php evil ?>", content_type="image/jpeg").status_code == 400
+    assert adm.post(f"/api/produtos/{pid}/foto", data=b"\xff\xd8\xff" + b"0" * 900_000 + b"\xff\xd9", content_type="image/jpeg").status_code == 400
+    assert adm.post("/api/produtos/9999/foto", data=jpeg, content_type="image/jpeg").status_code == 404
+    lucas = novo(); assert post(lucas, "/api/login", usuario="lucas", senha="senhalucas").status_code == 200
+    assert lucas.post(f"/api/produtos/{pid}/foto", data=jpeg, content_type="image/jpeg").status_code == 403
+    assert lucas.get("/api/backups").status_code == 403 and lucas.get("/api/backups/baixar").status_code == 403
+    assert lucas.get("/api/config").status_code == 403
+    assert str(pid) in lucas.get("/api/fotos").get_json()
+    assert post(adm, f"/api/produtos/{pid}/foto/remover").status_code == 200
+    assert adm.get(f"/fotos/{pid}.jpg").status_code == 404 and str(pid) not in adm.get("/api/fotos").get_json()
+
+
+def test_relatorios():
+    adm = novo(); assert post(adm, "/api/login", usuario="debora", senha="123456").status_code == 200
+    r = adm.get("/api/relatorios?dias=30").get_json()
+    assert r["pedidos"] >= 1 and r["itens"] >= 2
+    assert any(m["nome"] == "Pão brioche" and m["pedidos"] >= 1 for m in r["mais_pedidos"])
+    falta = next(f for f in r["faltas"] if f["produto"] == "Pão brioche")          # pediu 30, vieram 20
+    assert falta["pedido"] == 30 and falta["recebido"] == 20
+    assert r["diferencas"] and all(d["diferenca"] != 0 for d in r["diferencas"])  # balanço fechado com ajuste
+    pao = next(c for c in r["cobertura"] if c["produto"] == "Pão brioche")
+    assert pao["dias"] >= 0 and pao["por_semana"] > 0
+    assert adm.get("/api/relatorios?dias=abc").get_json()["dias"] == 30               # parâmetro inválido -> padrão
+    assert adm.get("/api/relatorios?dias=7").status_code == 200
+    novo_colab = novo(); post(adm, "/api/equipe", nome="Rel", usuario="reluser", senha="abc123", setor="Salão", nivel="padrao")
+    post(novo_colab, "/api/login", usuario="reluser", senha="abc123"); post(novo_colab, "/api/senha", atual="abc123", nova="senharel1")
+    assert novo_colab.get("/api/relatorios").status_code == 403                        # só admin vê
+    assert novo().get("/api/relatorios").status_code == 401
+
+
 if __name__ == "__main__":
-    test_fluxo_completo(); test_duplicados_e_sugestoes(); print("todos os testes passaram")
+    test_fluxo_completo(); test_duplicados_e_sugestoes(); test_backup_fotos_e_lembrete(); test_relatorios(); print("todos os testes passaram")

@@ -1,7 +1,7 @@
 'use strict';
-/* Pedacinho do Sertão — app V2 (JavaScript puro) — V2.0.3 */
+/* Pedacinho do Sertão — app V2 (JavaScript puro) — V2.1.1 */
 const app = document.getElementById('app');
-const S = {me: null, tela: 'inicio', p: {}, sub: null, pilha: [], d: {}, bal: false, form: null, sel: {}, filtro: null, q: ''};
+const S = {me: null, tela: 'inicio', p: {}, sub: null, pilha: [], d: {}, bal: false, form: null, sel: {}, filtro: null, q: '', fotos: {}};
 const TELAS = {};
 const IC = {
   home: '<path d="M4 11l8-7 8 7v9h-5v-6H9v6H4z"/>',
@@ -12,6 +12,7 @@ const IC = {
   eq: '<circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6 M16 5a3 3 0 0 1 0 6 M18 14c2 .8 3 3 3 6"/>',
   cfg: '<circle cx="12" cy="12" r="3"/><path d="M12 3v3 M12 18v3 M3 12h3 M18 12h3 M5.6 5.6l2.1 2.1 M16.3 16.3l2.1 2.1 M18.4 5.6l-2.1 2.1 M7.7 16.3l-2.1 2.1"/>',
   out: '<path d="M10 4H5v16h5 M14 8l4 4-4 4 M18 12H9"/>',
+  rel: '<path d="M4 20V10 M10 20V4 M16 20v-8 M22 20H2"/>',
 };
 
 /* ---------- utilidades ---------- */
@@ -30,7 +31,7 @@ const seloEst = (s) => selo(s, {baixo: 'Baixo', limite: 'No limite', ok: 'OK'}[s
 const seloPed = (st) => ({Solicitada: selo('limite', 'Aguardando'), Aprovada: selo('ok', 'Aprovado'), Comprada: selo('ok', 'Comprado'),
   Recebida: selo('ok', 'Recebido'), Recusada: selo('baixo', 'Recusado')}[st] || esc(st));
 const seloNivel = (u) => !u.ativo ? selo('baixo', 'Inativo') : u.nivel === 'admin' ? selo('adm', 'Admin') : u.nivel === 'padrao' ? selo('ok', 'Padrão') : selo('limite', 'Novo');
-const thumb = (id) => `<span class="thumb"><img src="/static/img/produtos/${id}.jpg" alt="" onerror="this.remove()">${ic('box')}</span>`;
+const thumb = (id) => `<span class="thumb">${S.fotos[id] ? `<img src="/fotos/${id}.jpg?v=${S.fotos[id]}" alt="">` : ''}${ic('box')}</span>`;
 const vazio = (t) => `<div class="vazio">${t}</div>`;
 const chip = (t, on, a, extra = '') => `<button class="chip ${on ? 'on' : ''}" data-a="${a}" ${extra}>${esc(t)}</button>`;
 const sw = (on, a, extra = '') => `<button class="sw ${on ? 'on' : ''}" role="switch" aria-checked="${!!on}" data-a="${a}" ${extra}></button>`;
@@ -51,6 +52,7 @@ async function api(url, metodo = 'GET', corpo) {
   if (!r.ok) { const e = new Error(d.erro || 'Algo deu errado. Tente de novo.'); e.dados = d; e.status = r.status; throw e; }
   return d;
 }
+async function carregarFotos() { try { S.fotos = await api('/api/fotos'); } catch (e) { /* fotos são opcionais */ } }
 async function tente(fn) { try { return await fn(); } catch (e) { if (e.message) toast(e.message, true); return null; } }
 
 /* ---------- navegação ---------- */
@@ -62,6 +64,7 @@ async function ir(tela, p = {}, opc = {}) {
   S.tela = tela; S.p = p; S.sub = p.sub ?? (opc.mantemSub ? S.sub : null);
   S.menu = false;
   if (TELAS[tela].entrar) TELAS[tela].entrar();
+  if (!S.me.trocar_senha) await carregarFotos();
   try { if (TELAS[tela].load) await TELAS[tela].load(); } catch (e) { if (e.message) toast(e.message, true); }
   render();
 }
@@ -93,7 +96,7 @@ function gaveta() {
   const it = (t, ico, tela, extra = '', on) => `<button data-a="ir" data-t="${tela}" class="${(on ?? atual === tela) ? 'on' : ''}">${ic(ico)}<span style="flex:1">${t}</span>${extra}</button>`;
   let n = `<div class="rot">MENU</div>${it('Início', 'home', 'inicio')}`;
   if (adm()) n += it('Estoque', 'box', 'estoque') + it('Pedidos', 'list', 'pedidos') + it('Compras', 'truck', 'compras')
-    + `<div class="rot">GESTÃO</div>${it('Balanço', 'bal', 'balanco', S.bal ? selo('ok', 'Aberto') : '')}${it('Equipe', 'eq', 'equipe')}`;
+    + `<div class="rot">GESTÃO</div>${it('Balanço', 'bal', 'balanco', S.bal ? selo('ok', 'Aberto') : '')}${it('Relatórios', 'rel', 'relatorios')}${it('Equipe', 'eq', 'equipe')}`;
   else {
     n += it('Pedidos', 'list', 'pedir');
     if (m.pode_contar) n += it('Contar estoque', 'bal', 'contagem', S.bal ? selo('ok', 'Aberto') : '');
@@ -127,6 +130,7 @@ TELAS.inicio = {
   body() {
     const r = S.d.resumo; let h = '';
     if (r.balanco.aberto) h += `<button class="aviso" data-a="ir" data-t="${adm() ? 'balanco' : 'contagem'}">${ic('bal')}<span style="flex:1"><b>Balanço aberto</b> · ${r.balanco.contados} de ${r.balanco.total} itens contados</span><span class="seta">›</span></button>`;
+    if (adm() && r.balanco_lembrete) { const l = r.balanco_lembrete; h += `<button class="aviso amarelo" data-a="ir" data-t="balanco"><span style="flex:1">${l.nunca ? `<b>Ainda não houve balanço</b> (${l.dias} dias de uso). Que tal fazer o primeiro?` : `<b>Faz ${l.dias} dias</b> do último balanço (prazo: ${l.prazo}). Iniciar agora`}</span><span class="seta">›</span></button>`; }
     if (adm() && r.sugestoes_abertas) h += `<button class="aviso amarelo" data-a="ir" data-t="pedidos" data-sub="sug"><span style="flex:1"><b>${r.sugestoes_abertas} ${r.sugestoes_abertas === 1 ? 'item sugerido' : 'itens sugeridos'}</b> por colaboradores · avaliar</span><span class="seta">›</span></button>`;
     if (adm()) {
       h += `<div class="sec">Resumo do estoque</div><div class="stats">
@@ -182,6 +186,7 @@ TELAS.editar = {
   body() {
     const f = S.form, passo = f.unidade === 'kg' ? 0.5 : 1;
     return `<div class="cartao item">${S.form.id ? thumb(f.id) : ''}<span class="meio"><div class="nome" style="font-size:19px">${esc(f.nome || 'Novo produto')}</div><div class="det">${esc(f.setor)}</div></span>${S.form.id ? seloEst(f.status) : ''}</div>
+      ${S.form.id ? `<div class="linha2"><input type="file" id="foto-arq" accept="image/*" hidden><button class="btn ghost" data-a="foto-escolher">${S.fotos[f.id] ? 'Trocar foto' : 'Adicionar foto'}</button>${S.fotos[f.id] ? '<button class="btn ghost" data-a="foto-remover">Remover foto</button>' : ''}</div>` : ''}
       ${S.form.id ? '' : campo('Nome', 'f-nome', f.nome, 'data-i="f" data-c="nome"') + '<div class="pequeno" style="margin-top:-4px">Padrão do nome: Categoria · tipo · marca (ex.: Cerveja lata · Heineken). Nomes repetidos são bloqueados.</div>'}
       <div class="cartao"><div class="pequeno">Estoque atual</div><div class="passo"><button data-a="passo" data-v="${-passo}" aria-label="Diminuir">−</button>
         <input class="num" id="f-quantidade" inputmode="decimal" value="${fmt(f.quantidade)}" data-i="f" data-c="quantidade"><button data-a="passo" data-v="${passo}" aria-label="Aumentar">+</button></div><div class="pequeno" style="text-align:center">${esc(f.unidade)}</div></div>
@@ -309,7 +314,7 @@ TELAS.compras = {
   foot() {
     const n = Object.values(S.sel).filter(Boolean).length;
     if (!n) return '';
-    return S.sub === 'comprar' ? btn(`Marcar como comprado (${n})`, 'comprar', 'verde') : btn(`Conferir entrega (${n})`, 'conferir-entrega', 'verde');
+    return S.sub === 'comprar' ? btn('Enviar lista pelo WhatsApp', 'whatsapp', 'ghost') + btn(`Marcar como comprado (${n})`, 'comprar', 'verde') : btn(`Conferir entrega (${n})`, 'conferir-entrega', 'verde');
   },
 };
 TELAS.entrega = {
@@ -404,15 +409,44 @@ TELAS.colaborador = {
   foot: () => btn(S.form.id ? 'Salvar alterações' : 'Criar acesso', 'salvar-colaborador') + (S.form.id && S.form.id !== S.me.id ? btn('Excluir colaborador', 'excluir-colaborador', 'perigo') : ''),
 };
 
+/* ---------- RELATÓRIOS (admin) ---------- */
+TELAS.relatorios = {
+  entrar() { S.sub = S.p.sub || '30'; },
+  async load() { S.d.rel = await api(`/api/relatorios?dias=${S.sub}`); },
+  cab: () => cab({titulo: 'Relatórios', sub: `Últimos ${S.sub} dias`, voltar: true}),
+  body() {
+    const r = S.d.rel, topo = Math.max(...r.mais_pedidos.map((m) => m.pedidos), 1);
+    let h = `<div class="seg">${[['7', '7 dias'], ['30', '30 dias'], ['90', '90 dias']].map(([k, t]) => `<button class="${S.sub === k ? 'on' : ''}" data-a="sub" data-v="${k}">${t}</button>`).join('')}</div>
+      <div class="stats"><div class="stat s2"><b>${r.pedidos}</b><span>pedidos</span></div><div class="stat s3"><b>${r.itens}</b><span>itens pedidos</span></div><div class="stat s1"><b>${r.faltas.length}</b><span>entregas com falta</span></div></div>`;
+    h += `<div class="sec">Mais pedidos</div>` + (r.mais_pedidos.length ? r.mais_pedidos.map((m) => `<div class="cartao"><div class="item"><span class="meio nome" style="font-size:16px">${esc(m.nome)}</span><b>${m.pedidos}×</b></div><div class="barra" style="margin:6px 0"><i style="width:${Math.round(m.pedidos / topo * 100)}%"></i></div><div class="pequeno">Aprovado no período: ${un(m.aprovado, m.unidade)}</div></div>`).join('') : vazio('Ainda sem pedidos nesse período.'));
+    h += `<div class="sec">Entregas com falta</div>` + (r.faltas.length ? r.faltas.map((f) => `<div class="cartao item"><span class="meio"><div class="nome" style="font-size:16px">${esc(f.produto)}</div><div class="det">Pediu ${un(f.pedido, f.unidade)} · vieram ${un(f.recebido, f.unidade)} · ${data(f.criada_em)}</div></span>${selo('limite', 'Faltaram ' + fmt(f.pedido - f.recebido))}</div>`).join('') : vazio('Nenhuma entrega com falta.'));
+    h += `<div class="sec">Diferenças nos balanços</div>` + (r.diferencas.length ? r.diferencas.map((d) => `<div class="cartao item"><span class="meio"><div class="nome" style="font-size:16px">${esc(d.produto)}</div><div class="det">${d.vezes} ${d.vezes === 1 ? 'balanço' : 'balanços'} com diferença</div></span>${selo(d.diferenca < 0 ? 'baixo' : 'limite', (d.diferenca > 0 ? '+' : '−') + un(Math.abs(d.diferenca), d.unidade))}</div>`).join('') : vazio('Sem diferenças registradas em balanços.'));
+    h += `<div class="sec">Quanto tempo o estoque dura</div>` + (r.cobertura.length ? r.cobertura.map((c) => `<div class="cartao item"><span class="meio"><div class="nome" style="font-size:16px">${esc(c.produto)}</div><div class="det">Tem ${un(c.estoque, c.unidade)} · chegam ~${un(c.por_semana, c.unidade)} por semana</div></span>${selo(c.dias < 7 ? 'baixo' : c.dias < 14 ? 'limite' : 'ok', `~${c.dias} dias`)}</div>`).join('') + '<div class="pequeno">Estimativa pelo ritmo das entregas recebidas no período. Não mede o consumo real.</div>' : vazio('Ainda sem entregas recebidas para estimar.'));
+    return h;
+  },
+};
+
 /* ---------- CONFIGURAÇÕES e troca de senha ---------- */
 const formSenha = (forcada) => `${campo('Senha atual', 's-atual', '', 'type="password" autocomplete="current-password"')}${campo('Nova senha (mín. 6 caracteres)', 's-nova', '', 'type="password" autocomplete="new-password"')}${campo('Repita a nova senha', 's-nova2', '', 'type="password" autocomplete="new-password"')}`;
 TELAS.config = {
   tab: null,
-  async load() { S.d.hist = adm() ? await api('/api/historico') : []; },
+  async load() { [S.d.hist, S.d.backups, S.d.cfg] = adm() ? await Promise.all([api('/api/historico'), api('/api/backups'), api('/api/config')]) : [[], null, null]; },
   cab: () => cab({titulo: 'Configurações', sub: S.me.nome, voltar: true}),
-  body: () => `<div class="sec">Trocar senha</div>${formSenha()}${btn('Salvar nova senha', 'salvar-senha')}
-    ${adm() ? `<div class="sec" style="margin-top:12px">Últimas movimentações</div>${S.d.hist.slice(0, 40).map((h) => `<div class="cartao"><div class="item"><b class="meio">${esc(h.tipo)} · ${esc(h.produto)}</b><span class="pequeno">${data(h.criada_em)}</span></div><div class="det muted">${esc(h.observacao)}${h.usuario ? ' — ' + esc(h.usuario) : ''}</div></div>`).join('')}` : ''}
-    <div class="pequeno" style="margin-top:8px">Pedacinho do Sertão · Estoque V2.0.3</div>`,
+  body() {
+    let h = `<div class="sec">Trocar senha</div>${formSenha()}${btn('Salvar nova senha', 'salvar-senha')}`;
+    if (adm()) {
+      const b = S.d.backups;
+      h += `<div class="sec" style="margin-top:12px">Lembrete de balanço</div>
+        <div class="cartao"><div class="linha2" style="align-items:flex-end">${campo('Avisar a cada (dias)', 'cfg-prazo', S.d.cfg.balanco_prazo_dias, 'inputmode="numeric"')}<button class="btn" data-a="salvar-prazo" style="min-height:44px">Salvar</button></div><div class="pequeno" style="margin-top:6px">Coloque 0 para desligar o aviso.</div></div>
+        <div class="sec" style="margin-top:12px">Backup</div>
+        <div class="cartao"><div>${b.itens.length ? `Último backup: <b>${data(b.itens[0].criado_em)}</b>` : 'Nenhum backup ainda.'}</div><div class="pequeno">O app guarda uma cópia sozinho 1 vez por dia e mantém as últimas ${b.manter}.</div></div>
+        ${btn('Fazer backup agora', 'backup-agora', 'ghost')}<a class="btn ghost" style="text-decoration:none" href="/api/backups/baixar">Baixar cópia (banco + fotos)</a>
+        <div class="pequeno">De vez em quando, baixe uma cópia e guarde fora do servidor (e-mail, Drive).</div>
+        ${b.itens.slice(0, 5).map((x) => `<div class="cartao item"><span class="meio">${data(x.criado_em)}</span><span class="pequeno">${x.manual ? 'manual' : 'automático'} · ${x.kb} KB</span></div>`).join('')}
+        <div class="sec" style="margin-top:12px">Últimas movimentações</div>${S.d.hist.slice(0, 40).map((x) => `<div class="cartao"><div class="item"><b class="meio">${esc(x.tipo)} · ${esc(x.produto)}</b><span class="pequeno">${data(x.criada_em)}</span></div><div class="det muted">${esc(x.observacao)}${x.usuario ? ' — ' + esc(x.usuario) : ''}</div></div>`).join('')}`;
+    }
+    return h + '<div class="pequeno" style="margin-top:8px">Pedacinho do Sertão · Estoque V2.1.1</div>';
+  },
 };
 TELAS.trocar = {
   semAbas: true, semMenu: true,
@@ -510,6 +544,19 @@ const ACOES = {
   'enviar-sugestao': () => tente(async () => {
     await api('/api/sugestoes', 'POST', {texto: $('#sg-texto').value}); toast('Aviso enviado ao admin.'); await ir('meus', {}, {raiz: true});
   }),
+  whatsapp: () => {
+    const itens = S.d.compras.a_comprar.filter((i) => S.sel[i.id]);
+    const linhas = itens.map((i) => `• ${i.produto}: ${fmt(i.qtd)} ${i.unidade}${i.observacao ? ` (${i.observacao})` : ''}`);
+    const texto = `*Pedido · Pedacinho do Sertão* (${new Date().toLocaleDateString('pt-BR')})\n${linhas.join('\n')}`;
+    window.open('https://wa.me/?text=' + encodeURIComponent(texto), '_blank');
+  },
+  'salvar-prazo': () => tente(async () => { await api('/api/config', 'POST', {balanco_prazo_dias: num($('#cfg-prazo').value)}); toast('Lembrete salvo.'); }),
+  'backup-agora': () => tente(async () => { await api('/api/backups', 'POST', {}); toast('Backup feito.'); await atualizar(); }),
+  'foto-escolher': () => $('#foto-arq').click(),
+  'foto-remover': () => tente(async () => {
+    if (!confirm('Remover a foto desse produto?')) return;
+    await api(`/api/produtos/${S.form.id}/foto/remover`, 'POST', {}); await carregarFotos(); toast('Foto removida.'); refrescar();
+  }),
   'salvar-senha': () => tente(async () => {
     const [a, n, n2] = ['#s-atual', '#s-nova', '#s-nova2'].map((s) => $(s).value);
     if (n !== n2) throw new Error('As senhas novas não são iguais.');
@@ -531,6 +578,30 @@ document.addEventListener('click', (e) => {
   const f = ACOES[el.dataset.a]; if (f) f(el);
 });
 document.addEventListener('input', (e) => { const f = ENTRADAS[e.target.dataset.i]; if (f) f(e.target); });
+/* foto do produto: reduz no próprio celular (lado máx. 480 px) antes de enviar */
+function redimensionar(arq, lado = 480) {
+  return new Promise((ok, falha) => {
+    const img = new Image(), url = URL.createObjectURL(arq);
+    img.onload = () => {
+      const k = Math.min(1, lado / Math.max(img.width, img.height)), c = document.createElement('canvas');
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+      c.toBlob((b) => (b ? ok(b) : falha(new Error('Não foi possível ler a imagem.'))), 'image/jpeg', 0.82);
+    };
+    img.onerror = () => falha(new Error('Esse arquivo não parece ser uma imagem.'));
+    img.src = url;
+  });
+}
+document.addEventListener('change', (e) => {
+  if (e.target.id !== 'foto-arq' || !e.target.files[0]) return;
+  const arq = e.target.files[0];
+  tente(async () => {
+    toast('Enviando foto…'); const blob = await redimensionar(arq);
+    const r = await fetch(`/api/produtos/${S.form.id}/foto`, {method: 'POST', headers: {'Content-Type': 'image/jpeg'}, body: blob});
+    const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.erro || 'Não foi possível enviar a foto.');
+    await carregarFotos(); toast('Foto salva.'); refrescar();
+  });
+});
 /* saudação e data acompanham o relógio; ao voltar para o app, o início é recarregado */
 function atualizarSaudacao() {
   if (!S.me) return; const h = $('#saud-t'), d = $('#data-t');
