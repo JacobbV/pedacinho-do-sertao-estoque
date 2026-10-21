@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#FAF2E6">
+<title>Entrar · Pedacinho do Sertão</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<main class="login">
+  <img class="login-sertao" src="{{ url_for('static', filename='img/cabecalho-sertao.jpg') }}" alt="">
+  <div class="login-caixa">
+    <img class="login-logo" src="{{ url_for('static', filename='img/cabecalho-logo.jpg') }}" alt="Pedacinho do Sertão">
+    <p class="sub">{{ 'Primeiro acesso: crie o administrador' if primeiro_acesso else 'Controle de estoque' }}</p>
+    <form id="form" autocomplete="on">
+      {% if primeiro_acesso %}
+      <label>Seu nome<input name="nome" autocomplete="name" required></label>
+      {% endif %}
+      <label>Usuário<input name="usuario" autocomplete="username" autocapitalize="none" required></label>
+      <label>Senha<input name="senha" type="password" autocomplete="{{ 'new-password' if primeiro_acesso else 'current-password' }}" required minlength="6"></label>
+      <p id="erro" class="erro" role="alert"></p>
+      <button class="btn" type="submit">{{ 'Criar e entrar' if primeiro_acesso else 'Entrar' }}</button>
+    </form>
+  </div>
+</main>
+<script>
+const setup = {{ 'true' if primeiro_acesso else 'false' }};
+document.getElementById('form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const dados = Object.fromEntries(new FormData(e.target));
+  const erro = document.getElementById('erro'); erro.textContent = '';
+  try {
+    const r = await fetch(setup ? '/api/setup' : '/api/login', {method: 'POST',
+      headers: {'Content-Type': 'application/json'}, body: JSON.stringify(dados)});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.erro || 'Não foi possível entrar.');
+    location.href = '/';
+  } catch (err) { erro.textContent = err.message; }
+});
+</script>
+</body>
+</html>
