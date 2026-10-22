@@ -1,5 +1,5 @@
 'use strict';
-/* Pedacinho do Sertão — app V2 (JavaScript puro) — V2.1.1 */
+/* Pedacinho do Sertão — app V2 (JavaScript puro) — V2.1.2 */
 const app = document.getElementById('app');
 const S = {me: null, tela: 'inicio', p: {}, sub: null, pilha: [], d: {}, bal: false, form: null, sel: {}, filtro: null, q: '', fotos: {}};
 const TELAS = {};
@@ -445,7 +445,7 @@ TELAS.config = {
         ${b.itens.slice(0, 5).map((x) => `<div class="cartao item"><span class="meio">${data(x.criado_em)}</span><span class="pequeno">${x.manual ? 'manual' : 'automático'} · ${x.kb} KB</span></div>`).join('')}
         <div class="sec" style="margin-top:12px">Últimas movimentações</div>${S.d.hist.slice(0, 40).map((x) => `<div class="cartao"><div class="item"><b class="meio">${esc(x.tipo)} · ${esc(x.produto)}</b><span class="pequeno">${data(x.criada_em)}</span></div><div class="det muted">${esc(x.observacao)}${x.usuario ? ' — ' + esc(x.usuario) : ''}</div></div>`).join('')}`;
     }
-    return h + '<div class="pequeno" style="margin-top:8px">Pedacinho do Sertão · Estoque V2.1.1</div>';
+    return h + '<div class="pequeno" style="margin-top:8px">Pedacinho do Sertão · Estoque V2.1.2</div>';
   },
 };
 TELAS.trocar = {

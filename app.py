@@ -1,9 +1,10 @@
-"""Pedacinho do Sertão — Controle de estoque (V2.1.1)
+"""Pedacinho do Sertão — Controle de estoque (V2.1.2)
 
 Login com níveis de acesso, pedidos sem quantidade (o admin define),
 compras com conferência de entrega e balanço de estoque por etapas.
 """
 import io
+import math
 import os
 import re
 import secrets
@@ -56,7 +57,7 @@ app.config.update(
 
 # ----------------------------------------------------------------- banco
 def conectar():
-    conexao = sqlite3.connect(DATABASE)
+    conexao = sqlite3.connect(DATABASE, timeout=20)  # espera até 20 s se outra requisição estiver gravando
     conexao.row_factory = sqlite3.Row
     conexao.execute("PRAGMA foreign_keys = ON")
     return conexao
@@ -165,6 +166,18 @@ def preparar_banco():
            WHERE qtd_aprovada IS NULL AND status IN ('Aprovada','Comprada','Recebida')"""
     )
 
+    # índices: mantêm as listas e os relatórios rápidos quando o histórico crescer
+    con.executescript(
+        """
+        CREATE INDEX IF NOT EXISTS ix_solic_produto_status ON solicitacoes (produto_id, status);
+        CREATE INDEX IF NOT EXISTS ix_solic_status ON solicitacoes (status);
+        CREATE INDEX IF NOT EXISTS ix_solic_usuario ON solicitacoes (usuario_id);
+        CREATE INDEX IF NOT EXISTS ix_solic_criada ON solicitacoes (criada_em);
+        CREATE INDEX IF NOT EXISTS ix_mov_produto ON movimentos (produto_id);
+        CREATE INDEX IF NOT EXISTS ix_mov_tipo_data ON movimentos (tipo, criada_em);
+        CREATE INDEX IF NOT EXISTS ix_sug_status ON sugestoes (status);
+        """
+    )
     if con.execute("SELECT COUNT(*) FROM produtos").fetchone()[0] == 0:
         produtos = [
             ("Blend bovino", "Carnes", "kg", 2.5, 5, 12, "Cozinha"),
@@ -193,9 +206,15 @@ def erro(mensagem, codigo=400, **extra):
 
 
 def numero(valor):
+    """Converte para número finito e razoável; 'nan', 'inf' e valores absurdos viram ValueError."""
+    if isinstance(valor, bool):
+        raise ValueError("número inválido")
     if isinstance(valor, str):
-        valor = valor.replace(",", ".")
-    return float(valor)
+        valor = valor.strip().replace(",", ".")
+    n = float(valor)
+    if not math.isfinite(n) or abs(n) > 1_000_000:
+        raise ValueError("número fora do limite")
+    return n
 
 
 def get_config(con, chave, padrao):
@@ -329,8 +348,10 @@ def validar_novo_usuario(dados):
     nome = str(dados.get("nome", "")).strip()
     usuario = str(dados.get("usuario", "")).strip().lower()
     senha = str(dados.get("senha", ""))
-    if len(nome) < 2:
-        return None, "Informe o nome."
+    if len(nome) < 2 or len(nome) > 60:
+        return None, "Informe o nome (de 2 a 60 letras)."
+    if len(senha) > 200:
+        return None, "A senha é grande demais."
     if not re.fullmatch(r"[a-z0-9._-]{3,30}", usuario):
         return None, "Usuário: 3 a 30 letras minúsculas, números, ponto, hífen ou _."
     if len(senha) < 6:
@@ -557,6 +578,8 @@ def _campos_produto(dados, atual=None):
         raise ValueError("Informe o nome e a unidade.")
     if not chave_nome(nome):
         raise ValueError("Informe um nome válido.")
+    if len(nome) > 80 or len(categoria) > 40 or len(unidade) > 12:
+        raise ValueError("Nome (até 80), categoria (até 40) e unidade (até 12 letras) estão grandes demais.")
     if setor not in SETORES:
         raise ValueError("Setor inválido.")
     try:

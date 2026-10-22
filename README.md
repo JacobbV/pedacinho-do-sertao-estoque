@@ -1,94 +1,146 @@
 # Pedacinho do Sertão — Controle de Estoque
 
-> Aplicação web interna temática para gestão operacional de estoque, monitorização de níveis críticos de segurança e automação do ciclo de compras para restaurantes[cite: 3, 11].
+Sistema interno de estoque e pedidos de compra do restaurante temático **Pedacinho do Sertão**. Funciona no celular como um aplicativo (PWA) e foi pensado para poucas pessoas: os donos (admins) e a equipe de cozinha e salão.
 
----
+**Versão atual: V2.1.2** · Online em <https://ramesonjaco.pythonanywhere.com/>
 
-## 📌 Visão Geral
+## Visão geral
 
-O **Pedacinho do Sertão — Estoque** é uma solução monolítica compacta desenvolvida com **Python (Flask)** e **SQLite**, concebida com arquitetura *mobile-first* temática inspirada na identidade visual e nas cores do sertão nordestino[cite: 3, 11].
+- A equipe **marca o que está acabando**, sem digitar quantidade e sem ver o estoque.
+- O admin vê o estoque, define a quantidade, **aprova** e acompanha a compra até a entrega.
+- No recebimento, confere o que chegou (pediu 30, vieram 20 → faltaram 10) e o estoque soma só o recebido.
+- O **balanço** é feito por etapas, com contagem às cegas e conferência das diferenças.
 
-O projeto foi desenhado para substituir cadernos de anotações físicas e folhas soltas de contagem, oferecendo à equipa da cozinha e à administração um painel dinâmico em tempo real para:
-- Monitorizar os produtos que atingiram a margem mínima de segurança.
-- Acompanhar o fluxo completo de compras (da solicitação ao recebimento com entrada automática em stock)[cite: 2, 3].
-- Manter um livro de registos auditável para todas as alterações físicas realizadas[cite: 2, 3].
+## Perfis e permissões
 
----
+| Perfil | O que faz |
+|---|---|
+| **Admin** (donos) | Tudo: estoque, aprovar pedidos, compras, balanço, equipe, relatórios, backups, configurações |
+| **Padrão** | Pede itens; pode receber compras e contar balanço conforme liberado pelo admin |
+| **Novo** | Só pede itens (sem ver quantidades) |
 
-## 📊 Histórico e Controle de Versões
+Cada colaborador também tem as permissões individuais **pode pedir**, **pode receber** e **pode contar**, e um setor (**Cozinha** ou **Salão**) que limita os itens que enxerga. A senha provisória criada pelo admin é trocada no primeiro acesso.
 
-| Versão | Data | Tipo | Descrição das Modificações |
-| :---: | :---: | :---: | :--- |
-| **V1.0.0** | 20/10/2026 | `chore` | Inicialização da estrutura de pastas, configuração do ambiente virtual `.venv`, criação do banco SQLite (`pedacinho.db`) e rotas base no Flask[cite: 2, 3, 12]. |
-| **V1.2.0** | 20/10/2026 | `feat` | Implementação dos endpoints REST para leitura (`/api/produtos`, `/api/solicitacoes`, `/api/historico`) e escrita com registo de movimentos[cite: 2]. |
-| **V1.4.0** | 20/10/2026 | `fix` | Correção da integração entre frontend e backend: remoção de dados fixos/estáticos e sincronização via chamadas assíncronas `fetch`[cite: 5, 6]. |
-| **V1.6.0** | 20/10/2026 | `feat` | Adição de fluxo de compras com três estados (`Solicitada` ➔ `Comprada` ➔ `Recebida`) com acréscimo automático de quantidade no inventário[cite: 2]. |
-| **V1.8.0** | 20/10/2026 | `ui/ux` | Redesenho completo da interface móvel: paleta terracota/areia, cabeçalho com gravura do sertão em SVG, navegação em 4 abas, badges de atenção e diálogo modal[cite: 18]. |
+## Funcionalidades
 
----
+- Login com senhas criptografadas e bloqueio contra tentativas em excesso (5 erros em 10 minutos).
+- Estoque com selos automáticos (Baixo / No limite / OK), mínimo e quantidade desejada por produto.
+- Foto do produto (JPEG reduzido no próprio celular; só quem está logado vê).
+- Pedidos: Solicitada → Aprovada → Comprada → Recebida (ou Recusada), com observação por item.
+- Entrega parcial: o estoque soma só o que chegou.
+- Bloqueio de produtos duplicados (ignora acento, maiúscula e símbolos) e botão **"Não achei o item"**, que envia sugestão para o admin.
+- Lista de compras pronta para enviar pelo **WhatsApp**.
+- Balanço por etapas (Cozinha · Ingredientes, Salão · Bebidas, Salão · Descartáveis): contagem às cegas, conferência, recontagem e fechamento, com lembrete de prazo.
+- Histórico de movimentações com o nome de quem fez cada uma.
+- Relatórios: mais pedidos, entregas com falta, diferenças de balanço e cobertura estimada.
+- Backup automático diário (mantém os últimos 21) e download em .zip do banco e das fotos.
+- Menu lateral e saudação por horário (bom dia, boa tarde, boa noite).
 
-## 🚀 Funcionalidades do Sistema
+## Histórico de versões
 
-### 1. Ecrã Inicial (Dashboard)
-- **Indicadores Rápidos**: 3 cartões de resumo com contagem em tempo real de:
-  - `itens baixos`: produtos cuja quantidade atual está menor ou igual ao limite de segurança[cite: 3, 6].
-  - `solicitações`: pedidos abertos pela equipa a aguardar aprovação/compra[cite: 2, 3, 6].
-  - `compras a receber`: pedidos já adquiridos a aguardar entrega e conferência[cite: 2, 3, 6].
-- **Secção "Precisa de atenção"**: Lista dinâmica destacando com imagens reais, saldo atual e etiqueta visual (`! Baixo` ou `! No limite`) os produtos mais urgentes[cite: 18].
-- **Ação Rápida**: Botão flutuante em destaque para abrir o diálogo de criação de pedido sem sair da vista principal[cite: 18].
+| Versão | Tipo | Data | Descrição |
+|---|---|---|---|
+| V1.0.0 | chore | 20/10/2026 | Estrutura inicial do projeto |
+| V1.2.0 | feat | 20/10/2026 | Cadastro de estoque e pedidos |
+| V1.4.0 | fix | 20/10/2026 | Correções de cálculo e telas |
+| V1.6.0 | feat | 20/10/2026 | Compras e histórico |
+| V1.8.0 | ui/ux | 20/10/2026 | Novo visual |
+| V2.0.0 | feat | 21/10/2026 | Login, níveis de acesso, pedido sem quantidade, aprovação, recebimento e balanço |
+| V2.0.x | fix | 21/10/2026 | Ajustes de menu, saudação, exclusão de colaborador e instalação |
+| V2.1.0 | feat | 22/10/2026 | Duplicados, "Não achei o item", observação por item, fotos, backups, relatórios e WhatsApp |
+| V2.1.1 | fix | 22/10/2026 | Ajustes de layout e textos |
+| V2.1.2 | fix | 22/10/2026 | Ícones, validação de números e tamanhos, índices no banco e testes de segurança e carga |
 
-### 2. Ecrã de Estoque & Contagem Física
-- Listagem integral de todos os insumos cadastrados[cite: 2].
-- **Campo de Pesquisa Instantânea**: Filtro por texto que busca tanto pelo nome do produto como pela sua categoria sem recarregar a página[cite: 6].
-- **Ajuste Direto de Contagem**: Ao tocar em qualquer cartão de produto, abre-se uma caixa rápida de atualização para corrigir a contagem física real na prateleira[cite: 2, 6].
+Os detalhes de cada atualização estão em `ATUALIZACAO_V2.md`.
 
-### 3. Gestão do Ciclo de Compras
-O sistema implementa uma regra de negócio linear e segura para a reposição de insumos[cite: 2]:
-1. **Abertura (`Solicitada`)**: A equipa seleciona o produto no modal, informa a quantidade e uma observação opcional[cite: 2, 6].
-2. **Autorização / Aquisição (`Aprovada` / `Comprada`)**: A gerência marca o item como adquirido[cite: 2, 6].
-3. **Recebimento (`Recebida`)**: Ao receber a encomenda, a equipa confere o volume entregue; o sistema dá baixa na solicitação e soma a quantidade diretamente ao saldo de estoque do produto[cite: 2, 6].
+## Tecnologias
 
-### 4. Auditoria e Rastreabilidade
-- Todas as operações (alterações manuais de contagem, novas ordens de compra, mudanças de estado e receções) gravam um registo permanente na tabela `movimentos` com timestamp local[cite: 2].
-- A aba de perfil exibe a lista cronológica das últimas 100 movimentações registadas para auditoria[cite: 2].
+- **Back-end:** Python 3 + Flask 3
+- **Banco de dados:** SQLite (arquivo único)
+- **Front-end:** HTML, CSS e JavaScript puro (sem frameworks), em página única
+- **Hospedagem:** PythonAnywhere
+- **Fontes:** Playfair Display e Plus Jakarta Sans
 
----
+## Arquitetura de arquivos
 
-## 🛠️ Tecnologias e Bibliotecas
-
-- **Linguagem**: Python 3.10+
-- **Framework Web**: [Flask](https://palletsprojects.com/p/flask/)[cite: 3, 4]
-- **Base de Dados**: SQLite3 nativo com integridade referencial ativa (`PRAGMA foreign_keys = ON`) e retorno em dicionários indexados (`sqlite3.Row`)[cite: 2]
-- **Frontend**: HTML5 semântico, CSS3 moderno (Flexbox, Grid, CSS Variables) e JavaScript puro (Vanilla ES6 com Fetch API)[cite: 3, 5, 6, 9]
-- **Tipografia**: Google Fonts (*Playfair Display* e *Plus Jakarta Sans*)
-- **Ilustrações**: Elementos visuais e logótipo gerados em código vetorial SVG limpo
-- **PWA (Progressive Web App)**: Manifesto de aplicação e Service Worker configurados para estrutura móvel offline[cite: 3, 7, 8]
-
----
-
-## 📂 Arquitetura de Ficheiros
-
-```text
-pedacinho-do-sertao-estoque/
-│
-├── .gitignore               # Ignora .venv, pasta instance, caches __pycache__ e logs[cite: 1, 3]
-├── app.py                   # Servidor Flask, rotas REST da API e regras de negócio[cite: 2]
-├── README.md                # Documentação técnica e operacional completa do projeto
-├── requirements.txt         # Dependências mínimas de execução (Flask)[cite: 4]
-│
-├── instance/
-│   └── pedacinho.db         # Ficheiro SQLite criado e populado automaticamente em runtime[cite: 2, 3]
-│
+```
+├── app.py                  # Servidor Flask: rotas, regras e banco
+├── requirements.txt
+├── ATUALIZACAO_V2.md       # Notas de cada atualização
+├── templates/
+│   ├── index.html          # Aplicativo
+│   └── login.html
 ├── static/
-│   ├── app.js               # Camada de requisições fetch, lógica do DOM e controle de abas[cite: 6]
-│   ├── style.css            # Estilização visual temática sertaneja e moldura mobile[cite: 9]
-│   ├── manifest.json        # Ficheiro de manifesto para instalação PWA móvel[cite: 7]
-│   ├── service-worker.js    # Script de cache estático para funcionamento offline[cite: 8]
-│   ├── icon.svg             # Ícone vetorial do aplicativo[cite: 3, 8]
-│   └── img/
-│       ├── logo-pedacinho.png  # Logomarca oficial do restaurante[cite: 3, 5]
-│       ├── icon-192.png        # Ícone do PWA para ecrãs móveis (192x192)[cite: 7]
-│       └── icon-512.png        # Ícone do PWA para ecrãs de alta densidade (512x512)[cite: 7]
-│
-└── templates/
-    └── index.html           # Gabarito HTML principal com os 4 painéis de navegação[cite: 2, 5]
+│   ├── app.js              # Telas e lógica do front
+│   ├── style.css
+│   ├── icon.svg
+│   ├── manifest.json       # PWA
+│   ├── service-worker.js
+│   └── img/                # Logo, cabeçalho e ícones 192/512
+├── tests/
+│   ├── test_api.py         # Fluxos principais
+│   ├── test_seguranca.py   # Permissões, entradas inválidas, força bruta, fotos
+│   ├── test_carga.py       # Estoque grande e uso simultâneo
+│   └── smoke_front.js      # Renderiza todas as telas
+└── instance/               # Criada sozinha; NÃO vai para o Git
+    ├── estoque.db          # Banco de dados
+    ├── fotos/
+    ├── backups/
+    └── secret_key
+```
+
+Coloque `instance/` e `__pycache__/` no `.gitignore` para nunca enviar o banco, as fotos nem a chave ao GitHub.
+
+## Rodar no computador
+
+```bash
+pip install -r requirements.txt
+python app.py
+```
+
+Abra `http://127.0.0.1:5000`. No primeiro acesso o sistema pede a criação do administrador.
+
+## Atualizar o site (PythonAnywhere)
+
+1. Substitua os arquivos no projeto local.
+2. `git add .` → `git commit -m "mensagem"` → `git push`
+3. No PythonAnywhere, abra um console Bash na pasta do projeto e rode `git pull`.
+4. Na aba **Web**, clique em **Reload**.
+
+Recomendado: na aba **Web**, defina a variável de ambiente `SECRET_KEY` com um texto longo e aleatório. Sem ela, o app gera uma chave em `instance/secret_key`.
+
+## Backup e restauração
+
+- O app guarda um backup por dia em `instance/backups` (variável `BACKUP_MANTER`, padrão 21).
+- Em **Configurações**, o admin baixa um .zip com o banco e as fotos. **Baixe uma cópia por semana**: os backups automáticos ficam no mesmo disco do site.
+- Para restaurar: pare o site, substitua `instance/estoque.db` (e `instance/fotos`) pelo conteúdo do .zip e dê Reload.
+
+## Testes
+
+```bash
+python tests/test_api.py
+python tests/test_seguranca.py
+python tests/test_carga.py
+```
+
+O teste de carga cria 1.500 produtos, 20 mil pedidos e 40 mil movimentos, e simula 10 pessoas usando ao mesmo tempo. Os testes usam um banco temporário e nunca tocam nos seus dados.
+
+## Limites da hospedagem gratuita (PythonAnywhere)
+
+- 512 MiB de disco e 1 aplicativo web com 1 processo.
+- Os 100 segundos de CPU por dia valem para consoles e tarefas agendadas, não para as visitas ao site.
+- O site gratuito **expira após 1 mês sem confirmação**: entre na aba **Web** e clique em estender.
+- Acesso externo à internet restrito (o app não precisa dele; o WhatsApp abre no celular).
+
+Para 3 pessoas e algumas centenas de produtos, o plano gratuito atende.
+
+## Próximos passos
+
+- Importar produtos por planilha (CSV).
+- Cadastro de fornecedores e lista de compra separada por fornecedor.
+- Alerta de estoque baixo pelo WhatsApp.
+- Exportar relatórios em PDF e CSV.
+- Histórico com filtros (por produto, pessoa e período).
+- Registro de preço pago e variação de custo.
+- Gerenciar categorias pelo app.
+- Modo offline para pedidos sem sinal.

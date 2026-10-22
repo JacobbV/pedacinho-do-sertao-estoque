@@ -60,5 +60,12 @@ python tests/test_api.py      # testa o fluxo completo da API
 - Arquivos que mudaram: `app.py`, `static/app.js`, `static/style.css`, `tests/`. As tabelas e colunas novas são criadas sozinhas no banco, sem perder dados.
 - Onde ficam os dados: `instance/` (banco, `backups/`, `fotos/`). Essa pasta não vai para o Git. Para restaurar um backup: pare o app, troque `instance/pedacinho.db` pelo arquivo `.db` do backup e dê Reload.
 
+## V2.1.2 — testes e blindagem antes do lançamento
+- **Ícones corrigidos:** adicionados `static/icon.svg`, `static/img/icon-192.png` e `static/img/icon-512.png` (acabam os erros 404 no console).
+- **Números inválidos:** `nan`, `inf` e valores absurdos (acima de 1.000.000) agora dão aviso de erro em vez de derrubar o servidor (erro 500).
+- **Limites de tamanho:** produto até 80 letras, categoria 40, unidade 12, nome de colaborador 60.
+- **Banco mais robusto:** espera até 20 s se duas pessoas gravarem ao mesmo tempo e índices novos mantêm as telas rápidas com histórico grande.
+- **Testes novos:** `tests/test_seguranca.py` (permissões, entradas inválidas, força bruta, fotos) e `tests/test_carga.py` (1.500 produtos, 20 mil pedidos, 10 pessoas ao mesmo tempo).
+
 ## V2.1.1
 - Acerto visual: a frase "…O item aparece como **Baixo** no início" na tela Editar item agora aparece corrida, sem espaços estranhos. Arquivos: `static/style.css`, `static/app.js`, `app.py` (só o número da versão).
