@@ -187,7 +187,8 @@ def test_backup_fotos_e_lembrete():
 
     # fotos: só admin envia, só JPEG, só logado vê
     assert adm.get("/api/fotos").get_json()[str(pid)] > 0
-    r = adm.get(f"/fotos/{pid}.jpg"); assert r.status_code == 200 and r.data == jpeg
+    with adm.get(f"/fotos/{pid}.jpg") as r:  # fecha a foto para o Windows deixar removê-la depois
+        assert r.status_code == 200 and r.data == jpeg
     assert novo().get(f"/fotos/{pid}.jpg").status_code == 401
     assert adm.post(f"/api/produtos/{pid}/foto", data=b"<?php evil ?>", content_type="image/jpeg").status_code == 400
     assert adm.post(f"/api/produtos/{pid}/foto", data=b"\xff\xd8\xff" + b"0" * 900_000 + b"\xff\xd9", content_type="image/jpeg").status_code == 400
